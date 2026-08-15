@@ -104,6 +104,17 @@ No one hand-writes code in this repo — every change is agent-authored, and the
 - **A future agent session starts with zero memory of this one.** Comments (see "Comments" above) and commit/PR messages are how it recovers context — write them for that reader, not just for whoever clicks through a PR once.
 - **Keep `AGENTS.md`, `.claude/rules/`, and `.claude/skills/` current as features land.** They substitute for the tribal knowledge a human team would build up informally. A rule or skill that's gone stale is worse than none — it actively misleads instead of just being silent. When a change introduces a new convention (a new table shape, a new API pattern, a new domain module), update or add the relevant rule/skill in the same change, not as separate cleanup later.
 
+## Git Workflow
+
+**Every fix or feature — no matter how small — lands on its own branch and merges via PR, never a direct commit to `main`.** This includes fixes discovered *after* an upstream sync (a merge conflict resolution that needed a follow-up correction, a migration-numbering collision, anything else that only surfaces once the merge is in). `main` only receives fast-forward PR merges plus the upstream sync merge commit itself (see below) — it should never see a standalone `git commit` from an agent.
+
+- Branch off the latest `main`: `git checkout -b fix/<short-description>` (or `feat/`, `chore/`, `docs/` — match the prefix to the change, see existing branches for examples).
+- One logical change per branch/PR — a migration-numbering fix and a docs update are two PRs, not one, even if they were both discovered in the same session.
+- Run the relevant verification (`npm run typecheck`, `npm test`, and for anything touching `supabase/migrations/`, an actual local replay — see `supabase-migrations.md`) *before* opening the PR, and record what you ran in the PR's Test plan.
+- Open the PR against **this fork** (`origin`), not the upstream template — `gh pr create` defaults to the parent repo when the checkout is a GitHub fork, so pass `--repo <owner>/<repo> --base main` explicitly (or `gh repo set-default <owner>/<repo>` once per checkout) to avoid accidentally opening it against `ArnasDon/wacrm`.
+
+**Exception — syncing with upstream itself**: the merge of `upstream/main` into local `main` (per CONTRIBUTING.md's "Keeping your fork up to date") is a direct merge commit on `main`, pushed straight to `origin` — there's no meaningful PR to review for a mechanical upstream pull. But any *fix* that merge turns up (conflict-resolution corrections, collision renumbering, anything requiring judgment) is a separate change and follows the branch+PR rule above like everything else.
+
 ## Fork-First Posture
 
 wacrm is a template — but **this checkout is a fork of it**, not the upstream template itself. `upstream` (`ArnasDon/wacrm`) is the shared template other people also fork from; `origin` (this fork) is one specific deployment being actively customized. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the fork/customize/deploy model that describes it.
