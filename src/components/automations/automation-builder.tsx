@@ -33,6 +33,7 @@ import {
   ArrowUp,
   MousePointerClick,
   List,
+  UserPlus,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -120,6 +121,12 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   condition: { label: "condition", icon: GitBranch, border: "border-l-amber-500" },
   send_webhook: { label: "send_webhook", icon: Webhook, border: "border-l-primary" },
   close_conversation: { label: "close_conversation", icon: CircleSlash, border: "border-l-primary" },
+  // Not yet in ADDABLE_STEPS — its config form (phone/name fields with
+  // {{webhook.*}} insertion) lands in a later PR. This entry only
+  // exists to satisfy Record<AutomationStepType, StepMeta>'s
+  // exhaustiveness so the type stays a compile-time guarantee that
+  // every step type has a picker entry once it's ready to expose.
+  find_or_create_contact: { label: "find_or_create_contact", icon: UserPlus, border: "border-l-primary" },
 }
 
 const ADDABLE_STEPS: AutomationStepType[] = [

@@ -477,7 +477,12 @@ export type AutomationTriggerType =
   | 'time_based'
   /** Customer tapped a reply button / list row whose id matches; lets
    *  multi-step menus be chained across automations. */
-  | 'interactive_reply';
+  | 'interactive_reply'
+  /** Fired by POST /api/webhooks/inbound/[token] — an external system
+   *  (Hotmart, Kiwify, a custom store, ...) pushed an event in. See
+   *  InboundWebhookTriggerConfig for how one automation is picked out
+   *  of every automation sharing this trigger type. */
+  | 'inbound_webhook';
 
 export type AutomationStepType =
   | 'send_message'
@@ -492,7 +497,8 @@ export type AutomationStepType =
   | 'wait'
   | 'condition'
   | 'send_webhook'
-  | 'close_conversation';
+  | 'close_conversation'
+  | 'find_or_create_contact';
 
 export type AutomationLogStatus = 'success' | 'partial' | 'failed';
 
@@ -525,12 +531,23 @@ export interface InteractiveReplyTriggerConfig {
   reply_ids: string[];
 }
 
+export interface InboundWebhookTriggerConfig {
+  /** id of the `inbound_webhook_triggers` row this automation is wired
+   *  to. Set automatically when that row is created — never
+   *  hand-edited. `triggerMatches` compares this against the id the
+   *  route resolved from the URL token, so only the one matching
+   *  automation runs even though many automations may share
+   *  trigger_type = 'inbound_webhook'. */
+  webhook_trigger_id: string;
+}
+
 export type AutomationTriggerConfig =
   | Record<string, never>
   | KeywordMatchTriggerConfig
   | TagTriggerConfig
   | TimeBasedTriggerConfig
   | InteractiveReplyTriggerConfig
+  | InboundWebhookTriggerConfig
   | Record<string, unknown>;
 
 export interface SendMessageStepConfig {
@@ -589,13 +606,19 @@ export type ConditionSubject =
   | 'contact_field'
   | 'tag_presence'
   | 'message_content'
-  | 'time_of_day';
+  | 'time_of_day'
+  /** Dot-path into the current inbound-webhook payload
+   *  (`context.webhook_payload`), e.g. operand `"event.type"`. Only
+   *  meaningful on an `inbound_webhook`-triggered run — resolves to
+   *  undefined (never matches) otherwise. */
+  | 'webhook_field';
 
 export interface ConditionStepConfig {
   subject: ConditionSubject;
-  /** e.g. field name, tag id, substring, or "HH:mm-HH:mm" depending on subject */
+  /** e.g. field name, tag id, substring, "HH:mm-HH:mm", or a webhook
+   *  payload dot-path, depending on subject */
   operand?: string;
-  /** For contact_field equals / message_content contains — comparison value */
+  /** For contact_field / webhook_field equals, message_content contains — comparison value */
   value?: string;
 }
 
@@ -603,6 +626,14 @@ export interface SendWebhookStepConfig {
   url: string;
   headers?: Record<string, string>;
   body_template?: string;
+}
+
+export interface FindOrCreateContactStepConfig {
+  /** Supports `{{ webhook.* }}` / `{{ vars.* }}` interpolation — this
+   *  is the identifying field, required. */
+  phone: string;
+  /** Supports the same interpolation; optional. */
+  name?: string;
 }
 
 export type AutomationStepConfig =
@@ -617,6 +648,7 @@ export type AutomationStepConfig =
   | WaitStepConfig
   | ConditionStepConfig
   | SendWebhookStepConfig
+  | FindOrCreateContactStepConfig
   | Record<string, never>
   | Record<string, unknown>;
 
