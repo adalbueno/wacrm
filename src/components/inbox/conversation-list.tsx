@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
 import { Search, ChevronDown, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
+import { getDateFnsLocale } from "@/lib/date-locale";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -439,6 +440,7 @@ function ConversationItem({
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
   const initials = displayName.charAt(0).toUpperCase();
+  const dateFnsLocale = getDateFnsLocale(useLocale());
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
@@ -447,6 +449,7 @@ function ConversationItem({
   const timeAgo = conversation.last_message_at
     ? formatDistanceToNow(new Date(conversation.last_message_at), {
         addSuffix: false,
+        locale: dateFnsLocale,
       })
     : "";
 
