@@ -6,6 +6,8 @@ import {
   SendMessageError,
   type SendMessageParams,
 } from './send-message';
+import { MetaApiError } from './meta-api';
+import { TemplateValidationError } from './template-send-builder';
 
 // A db that explodes if touched — these tests cover the param
 // validation that MUST short-circuit before any query runs.
@@ -344,5 +346,95 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
     // name rather than inventing a body.
     expect(captured.message?.content_text).toBeNull();
     expect(captured.conversation?.last_message_text).toBe('[template]');
+  });
+});
+
+// ============================================================
+// Failed sends — persisted with a reason, not silently dropped.
+// ============================================================
+
+describe('sendMessageToConversation — failed send persistence', () => {
+  it('persists a failed row with Meta\'s structured error and rethrows with a 502', async () => {
+    sendTemplateMessage.mockRejectedValueOnce(
+      new MetaApiError('Template is paused', {
+        code: 132000,
+        type: 'OAuthException',
+        errorData: { details: 'The template is paused by WhatsApp' },
+      })
+    );
+    const captured: CapturedWrites = {};
+    const db = sendPathDb([TEMPLATE_ROW], captured);
+
+    await expect(
+      sendMessageToConversation(db, 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'order_update',
+        templateParams: ['A123', 'Friday'],
+      })
+    ).rejects.toMatchObject({
+      code: 'meta_error',
+      status: 502,
+      message: expect.stringContaining('Meta API error:'),
+    });
+
+    expect(captured.message).toMatchObject({
+      status: 'failed',
+      message_id: null,
+      error_message: 'Template is paused (The template is paused by WhatsApp)',
+      error_code: '132000',
+      content_text: 'Your order A123 ships on Friday',
+      template_name: 'order_update',
+    });
+  });
+
+  it('labels a local template-validation failure distinctly from a Meta rejection', async () => {
+    sendTemplateMessage.mockRejectedValueOnce(
+      new TemplateValidationError(
+        'Body has 2 variable(s) but only 1 value(s) were supplied.'
+      )
+    );
+    const captured: CapturedWrites = {};
+    const db = sendPathDb([TEMPLATE_ROW], captured);
+
+    await expect(
+      sendMessageToConversation(db, 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'order_update',
+        templateParams: ['A123'],
+      })
+    ).rejects.toMatchObject({
+      code: 'validation_error',
+      status: 400,
+      message: 'Body has 2 variable(s) but only 1 value(s) were supplied.',
+    });
+
+    expect(captured.message).toMatchObject({
+      status: 'failed',
+      error_message: 'Body has 2 variable(s) but only 1 value(s) were supplied.',
+      error_code: null,
+    });
+  });
+
+  it('falls back to a generic reason for a non-Meta, non-validation throw (e.g. network failure)', async () => {
+    sendTemplateMessage.mockRejectedValueOnce(new Error('fetch failed'));
+    const captured: CapturedWrites = {};
+    const db = sendPathDb([TEMPLATE_ROW], captured);
+
+    await expect(
+      sendMessageToConversation(db, 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'order_update',
+        templateParams: ['A123', 'Friday'],
+      })
+    ).rejects.toMatchObject({ code: 'meta_error', status: 502 });
+
+    expect(captured.message).toMatchObject({
+      status: 'failed',
+      error_message: 'fetch failed',
+      error_code: null,
+    });
   });
 });

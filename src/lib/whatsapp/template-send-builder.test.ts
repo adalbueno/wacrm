@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSendComponents } from './template-send-builder';
+import { buildSendComponents, TemplateValidationError } from './template-send-builder';
 import type { MessageTemplate } from '@/types';
 
 function row(overrides: Partial<MessageTemplate> = {}): MessageTemplate {
@@ -252,6 +252,21 @@ describe('buildSendComponents — buttons', () => {
       }),
     );
     expect(components).toEqual([]);
+  });
+});
+
+describe('buildSendComponents — validation errors are distinguishable', () => {
+  // send-message.ts branches on this to tell "your template config is
+  // wrong" apart from an actual Meta API rejection — every local
+  // validation throw in this module must use this class, not a plain
+  // Error, or that distinction silently breaks.
+  it.each([
+    ['missing body value', () => buildSendComponents(row({ body_text: 'Hi {{1}} {{2}}' }), { body: ['just one'] })],
+    ['missing header text value', () => buildSendComponents(row({ header_type: 'text', header_content: 'Hello {{1}}' }))],
+    ['missing header media', () => buildSendComponents(row({ header_type: 'image' }))],
+    ['missing URL button param', () => buildSendComponents(row({ buttons: [{ type: 'URL', text: 'Track', url: 'https://x.com/{{1}}' }] }))],
+  ])('%s throws TemplateValidationError', (_label, run) => {
+    expect(run).toThrow(TemplateValidationError);
   });
 });
 

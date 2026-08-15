@@ -260,6 +260,16 @@ export interface Message {
    * badge in the inbox. Migration 033.
    */
   ai_generated?: boolean;
+  /**
+   * Why `status === 'failed'`, from whichever writer set it — a
+   * synchronous Meta send rejection (send-message.ts) or an async
+   * status-callback webhook (webhook/route.ts's handleStatusUpdate).
+   * Null/absent on every other status and on rows written before
+   * migration 901.
+   */
+  error_message?: string | null;
+  /** Meta's numeric error code (or `type` as a fallback) alongside `error_message`. Migration 901. */
+  error_code?: string | null;
 }
 
 export type ReactionActor = 'customer' | 'agent';

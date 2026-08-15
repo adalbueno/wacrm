@@ -29,6 +29,14 @@ const h = vi.hoisted(() => ({
     }[],
     /** Error the next storage upload resolves with, if any. */
     storageUploadError: null as { message: string } | null,
+    /** Rows passed to `messages.update(...)`, in call order (901). */
+    messagesUpdateCalls: [] as Record<string, unknown>[],
+    /** Row `handleStatusUpdate`'s webhook-fan-out lookup resolves to. */
+    statusMsgRow: null as { conversation_id: string; conversations: { account_id: string } } | null,
+    /** Row the broadcast_recipients `whatsapp_message_id` lookup resolves to. */
+    statusRecipient: null as { id: string; status: string } | null,
+    /** Rows passed to `broadcast_recipients.update(...)`, in call order. */
+    recipientUpdateCalls: [] as Record<string, unknown>[],
   },
 }))
 
@@ -79,51 +87,79 @@ vi.mock('@supabase/supabase-js', () => ({
               }),
             }),
           }
-        case 'broadcast_recipients':
-          // flagBroadcastReplyIfAny: select().eq().eq().in().order().limit()
-          return {
-            select: () => ({
+        case 'broadcast_recipients': {
+          // handleStatusUpdate's whatsapp_message_id lookup:
+          // select('id, status').eq().maybeSingle() — told apart from
+          // flagBroadcastReplyIfAny's chain by the requested columns.
+          const recipientLookupChain = {
+            eq: () => ({
+              maybeSingle: () =>
+                Promise.resolve({
+                  data: h.state.statusRecipient,
+                  error: null,
+                }),
+            }),
+          }
+          const replyFlagChain = {
+            eq: () => ({
               eq: () => ({
-                eq: () => ({
-                  in: () => ({
-                    order: () => ({
-                      limit: () =>
-                        Promise.resolve({ data: [], error: null }),
-                    }),
+                in: () => ({
+                  order: () => ({
+                    limit: () => Promise.resolve({ data: [], error: null }),
                   }),
                 }),
               }),
             }),
           }
-        case 'messages':
           return {
-            // Two different chains land here, told apart by the count
-            // option: the prior-message count (head request) and the
-            // reply-context parent lookup.
-            select: (_columns: string, options?: { head?: boolean }) =>
+            select: (columns?: string) =>
+              columns === 'id, status' ? recipientLookupChain : replyFlagChain,
+            update: (row: Record<string, unknown>) => {
+              h.state.recipientUpdateCalls.push(row)
+              return { eq: () => Promise.resolve({ error: null }) }
+            },
+          }
+        }
+        case 'messages': {
+          // Three different chains land here. `head` picks the
+          // prior-message count; the requested `columns` distinguish
+          // the reply-context lookup from handleStatusUpdate's
+          // webhook-fan-out lookup (901).
+          const priorCountChain = {
+            eq: () => ({
+              eq: () =>
+                Promise.resolve({
+                  count: h.state.priorCustomerMsgCount,
+                  error: null,
+                }),
+            }),
+          }
+          const statusFanOutChain = {
+            eq: () => ({
+              limit: () => ({
+                maybeSingle: () =>
+                  Promise.resolve({ data: h.state.statusMsgRow, error: null }),
+              }),
+            }),
+          }
+          const replyContextChain = {
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: () =>
+                  Promise.resolve({
+                    data: h.state.replyContextParent,
+                    error: null,
+                  }),
+              }),
+            }),
+          }
+          return {
+            select: (columns: string, options?: { head?: boolean }) =>
               options?.head
-                ? // priorCustomerMsgCount: select('id',{count,head}).eq().eq()
-                  {
-                    eq: () => ({
-                      eq: () =>
-                        Promise.resolve({
-                          count: h.state.priorCustomerMsgCount,
-                          error: null,
-                        }),
-                    }),
-                  }
-                : // lookupInternalIdByMetaId: select('id').eq().eq().maybeSingle()
-                  {
-                    eq: () => ({
-                      eq: () => ({
-                        maybeSingle: () =>
-                          Promise.resolve({
-                            data: h.state.replyContextParent,
-                            error: null,
-                          }),
-                      }),
-                    }),
-                  },
+                ? priorCountChain
+                : columns.includes('conversations(account_id)')
+                  ? statusFanOutChain
+                  : replyContextChain,
             // Idempotent insert: upsert(...).select('id')
             upsert: (row: Record<string, unknown>, options: unknown) => {
               h.state.upsertCalls.push({ row, options })
@@ -135,7 +171,12 @@ vi.mock('@supabase/supabase-js', () => ({
                   }),
               }
             },
+            update: (row: Record<string, unknown>) => {
+              h.state.messagesUpdateCalls.push(row)
+              return { eq: () => Promise.resolve({ error: null }) }
+            },
           }
+        }
         default:
           throw new Error(`unexpected table: ${table}`)
       }
@@ -246,6 +287,31 @@ async function runWebhook(message?: Record<string, unknown>) {
   return res
 }
 
+function statusRequest(statuses: Array<Record<string, unknown>>) {
+  const body = {
+    entry: [
+      {
+        changes: [
+          {
+            field: 'messages',
+            value: { statuses },
+          },
+        ],
+      },
+    ],
+  }
+  return {
+    text: async () => JSON.stringify(body),
+    headers: { get: () => 'sha256=stub' },
+  } as unknown as Request
+}
+
+async function runStatusWebhook(statuses: Array<Record<string, unknown>>) {
+  const res = await POST(statusRequest(statuses))
+  for (const cb of h.state.afterCallbacks) await cb()
+  return res
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   h.state.messageUpsertResult = [{ id: 'msg-1' }]
@@ -255,6 +321,10 @@ beforeEach(() => {
   h.state.upsertCalls = []
   h.state.rpcCalls = []
   h.state.afterCallbacks = []
+  h.state.messagesUpdateCalls = []
+  h.state.statusMsgRow = null
+  h.state.statusRecipient = null
+  h.state.recipientUpdateCalls = []
   h.state.automationStarted = 0
   h.state.automationCompleted = 0
   h.state.mirrorInboundMedia = true
@@ -536,5 +606,79 @@ describe('inbound webhook: after() awaits automations (#368)', () => {
     // If the dispatches were fire-and-forget, completed would still be 0
     // here — the callback would have resolved before the timers fired.
     expect(h.state.automationCompleted).toBe(3)
+  })
+})
+
+describe('status callback: captures why a message failed (901)', () => {
+  it('persists error_message/error_code from Meta\'s errors array on a failed status', async () => {
+    await runStatusWebhook([
+      {
+        id: 'wamid.FAILED1',
+        status: 'failed',
+        timestamp: '1700000000',
+        recipient_id: '15551230000',
+        errors: [
+          {
+            code: 131047,
+            title: 'Re-engagement message',
+            message:
+              'Message failed to send because more than 24 hours have passed since the customer last replied',
+            error_data: { details: 'outside the 24 hour window' },
+          },
+        ],
+      },
+    ])
+
+    expect(h.state.messagesUpdateCalls).toHaveLength(1)
+    expect(h.state.messagesUpdateCalls[0]).toEqual({
+      status: 'failed',
+      error_message:
+        'Message failed to send because more than 24 hours have passed since the customer last replied',
+      error_code: '131047',
+    })
+  })
+
+  it('falls back to errors[0].title when message is absent, and error_code null when code is absent', async () => {
+    await runStatusWebhook([
+      {
+        id: 'wamid.FAILED2',
+        status: 'failed',
+        timestamp: '1700000000',
+        recipient_id: '15551230000',
+        errors: [{ title: 'Generic failure' }],
+      },
+    ])
+
+    expect(h.state.messagesUpdateCalls[0]).toEqual({
+      status: 'failed',
+      error_message: 'Generic failure',
+      error_code: null,
+    })
+  })
+
+  it('records a failed status with no errors array as status-only (nothing to capture)', async () => {
+    await runStatusWebhook([
+      {
+        id: 'wamid.FAILED3',
+        status: 'failed',
+        timestamp: '1700000000',
+        recipient_id: '15551230000',
+      },
+    ])
+
+    expect(h.state.messagesUpdateCalls[0]).toEqual({ status: 'failed' })
+  })
+
+  it('never writes error_message/error_code on a non-failed status, even if errors were somehow present', async () => {
+    await runStatusWebhook([
+      {
+        id: 'wamid.DELIVERED1',
+        status: 'delivered',
+        timestamp: '1700000000',
+        recipient_id: '15551230000',
+      },
+    ])
+
+    expect(h.state.messagesUpdateCalls[0]).toEqual({ status: 'delivered' })
   })
 })

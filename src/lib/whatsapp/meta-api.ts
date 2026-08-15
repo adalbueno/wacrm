@@ -24,18 +24,55 @@ export interface MetaPhoneInfo {
 }
 
 interface MetaErrorResponse {
-  error?: { message?: string; code?: number; type?: string }
+  error?: {
+    message?: string
+    code?: number
+    type?: string
+    error_data?: { details?: string; [key: string]: unknown }
+  }
+}
+
+/**
+ * Thrown by throwMetaError instead of a plain Error so callers that
+ * need to persist *why* a send failed (send-message.ts, the status
+ * webhook handler) can pull the structured detail Meta actually sent
+ * — `message` alone collapses template-specific failures (bad param
+ * count, rejected template, etc) into an opaque string. Still
+ * `instanceof Error`, so every existing catch site that only reads
+ * `.message` keeps working unchanged.
+ */
+export class MetaApiError extends Error {
+  readonly code?: number
+  readonly type?: string
+  readonly errorData?: { details?: string; [key: string]: unknown }
+
+  constructor(
+    message: string,
+    details: { code?: number; type?: string; errorData?: { details?: string; [key: string]: unknown } } = {}
+  ) {
+    super(message)
+    this.name = 'MetaApiError'
+    this.code = details.code
+    this.type = details.type
+    this.errorData = details.errorData
+  }
 }
 
 async function throwMetaError(response: Response, fallback: string): Promise<never> {
   let message = fallback
+  let code: number | undefined
+  let type: string | undefined
+  let errorData: { details?: string; [key: string]: unknown } | undefined
   try {
     const data = (await response.json()) as MetaErrorResponse
     if (data.error?.message) message = data.error.message
+    code = data.error?.code
+    type = data.error?.type
+    errorData = data.error?.error_data
   } catch {
     // response body wasn't JSON — keep the fallback
   }
-  throw new Error(message)
+  throw new MetaApiError(message, { code, type, errorData })
 }
 
 // ============================================================
