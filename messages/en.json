@@ -1040,6 +1040,10 @@
         "urlWarning": "This URL won't be shown again — copy it now.",
         "urlAlreadyShown": "The URL was already shown once and can't be displayed again. Revoke and generate a new one if you lost it.",
         "lastTriggered": "Last triggered: {time}",
+        "refresh": "Refresh",
+        "noPayloadYet": "Send a test webhook to this URL, then click Refresh to see its fields here.",
+        "lastPayloadLabel": "Last received payload",
+        "emptyPayload": "Received, but empty.",
         "revoke": "Revoke"
       },
       "webhookField": {

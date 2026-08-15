@@ -36,6 +36,7 @@ import {
   List,
   UserPlus,
   Braces,
+  RefreshCw,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -1103,7 +1104,16 @@ function InboundWebhookTriggerPanel({ t }: { t: ReturnType<typeof useTranslation
             time: formatRelative(webhookTrigger.last_triggered_at),
           })}
         </span>
+        <button
+          type="button"
+          onClick={refreshWebhookTrigger}
+          className="inline-flex items-center gap-1 text-muted-foreground transition-colors hover:text-primary"
+        >
+          <RefreshCw className="h-3 w-3" />
+          {t("webhookTrigger.refresh")}
+        </button>
       </div>
+      <WebhookPayloadPreview sample={webhookTrigger.last_payload_sample} t={t} />
       <Button
         type="button"
         size="sm"
@@ -1115,6 +1125,49 @@ function InboundWebhookTriggerPanel({ t }: { t: ReturnType<typeof useTranslation
         {revoking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
         {t("webhookTrigger.revoke")}
       </Button>
+    </div>
+  )
+}
+
+/**
+ * Shows what the trigger has actually received, right where the URL
+ * lives — so "send a test event, click Refresh" has visible payoff
+ * instead of the user having to go find a step editor to notice the
+ * field picker turned on. Reuses `flattenPayload`, same field list the
+ * picker itself renders.
+ */
+function WebhookPayloadPreview({
+  sample,
+  t,
+}: {
+  sample: unknown
+  t: ReturnType<typeof useTranslations>
+}) {
+  const fields = useMemo(() => flattenPayload(sample), [sample])
+
+  if (sample == null) {
+    return (
+      <p className="text-[11px] text-muted-foreground">{t("webhookTrigger.noPayloadYet")}</p>
+    )
+  }
+
+  return (
+    <div className="space-y-1 rounded-md border border-border bg-muted/50 p-2">
+      <p className="text-[11px] font-medium text-muted-foreground">
+        {t("webhookTrigger.lastPayloadLabel")}
+      </p>
+      <div className="max-h-40 space-y-0.5 overflow-y-auto">
+        {fields.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">{t("webhookTrigger.emptyPayload")}</p>
+        ) : (
+          fields.map((f) => (
+            <div key={f.path} className="flex items-center gap-2 text-[11px]">
+              <span className="truncate font-mono text-foreground">{f.path}</span>
+              <span className="ml-auto truncate text-muted-foreground">{f.preview}</span>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   )
 }

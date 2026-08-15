@@ -1040,6 +1040,10 @@
         "urlWarning": "이 URL은 다시 표시되지 않습니다 — 지금 복사하세요.",
         "urlAlreadyShown": "URL은 이미 한 번 표시되었으며 다시 표시할 수 없습니다. 분실한 경우 취소하고 새로 생성하세요.",
         "lastTriggered": "마지막 실행: {time}",
+        "refresh": "새로고침",
+        "noPayloadYet": "이 URL로 테스트 웹훅을 보낸 다음 새로고침을 클릭하면 여기에서 필드를 볼 수 있습니다.",
+        "lastPayloadLabel": "마지막으로 수신된 페이로드",
+        "emptyPayload": "수신되었지만 비어 있습니다.",
         "revoke": "취소"
       },
       "webhookField": {

@@ -1040,6 +1040,10 @@
         "urlWarning": "Essa URL não será mostrada novamente — copie agora.",
         "urlAlreadyShown": "A URL já foi mostrada uma vez e não pode ser exibida de novo. Revogue e gere uma nova se perdeu a anterior.",
         "lastTriggered": "Último disparo: {time}",
+        "refresh": "Atualizar",
+        "noPayloadYet": "Envie um webhook de teste para essa URL e clique em Atualizar para ver os campos aqui.",
+        "lastPayloadLabel": "Último payload recebido",
+        "emptyPayload": "Recebido, mas vazio.",
         "revoke": "Revogar"
       },
       "webhookField": {
