@@ -873,7 +873,8 @@
         "wait": "Wait",
         "condition": "Condition (If/Else)",
         "send_webhook": "Send Webhook",
-        "close_conversation": "Close Conversation"
+        "close_conversation": "Close Conversation",
+        "find_or_create_contact": "Find or Create Contact"
       },
       "triggers": {
         "new_message_received": {
@@ -907,6 +908,10 @@
         "time_based": {
           "label": "Time-Based",
           "hint": "On a recurring schedule"
+        },
+        "inbound_webhook": {
+          "label": "Inbound Webhook",
+          "hint": "An external system (Hotmart, Kiwify, a custom app, ...) POSTs to a unique URL"
         }
       },
       "trigger": "Trigger",
@@ -997,7 +1002,8 @@
           "tag_presence": "Tag presence",
           "contact_field": "Contact field",
           "message_content": "Message content",
-          "time_of_day": "Time of day"
+          "time_of_day": "Time of day",
+          "webhook_field": "Webhook field"
         },
         "operandLabel": "Operand",
         "placeholderTime": "HH:mm-HH:mm",
@@ -1013,7 +1019,31 @@
         "matchWord": "Whole word",
         "matchWordHint": "Matches the keyword only as a standalone word, so \"k\" no longer fires on \"thanks\". Best for short keywords in space-separated languages; use Contains for languages written without spaces.",
         "matchExact": "Exact",
-        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed."
+        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed.",
+        "placeholderWebhookPath": "e.g. event.type",
+        "phoneLabel": "Phone",
+        "nameLabel": "Name",
+        "placeholderWebhookPhone": "{{ webhook.contact.phone }}",
+        "placeholderWebhookName": "{{ webhook.contact.name }}"
+      },
+      "webhookTrigger": {
+        "saveFirst": "Save the automation first, then come back here to generate the webhook URL.",
+        "loading": "Loading…",
+        "hint": "Generate a unique URL to paste into an external system's webhook settings (Hotmart, Kiwify, Zapier, ...).",
+        "generate": "Generate URL",
+        "createError": "Could not create the webhook trigger.",
+        "revokeError": "Could not revoke the webhook trigger.",
+        "urlLabel": "Webhook URL",
+        "copy": "Copy",
+        "copySuccess": "URL copied",
+        "copyFailed": "Could not copy",
+        "urlWarning": "This URL won't be shown again — copy it now.",
+        "urlAlreadyShown": "The URL was already shown once and can't be displayed again. Revoke and generate a new one if you lost it.",
+        "lastTriggered": "Last triggered: {time}",
+        "revoke": "Revoke"
+      },
+      "webhookField": {
+        "insert": "Insert field"
       }
     }
   },

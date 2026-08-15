@@ -873,7 +873,8 @@
         "wait": "Aguardar",
         "condition": "Condição (Se/Senão)",
         "send_webhook": "Enviar webhook",
-        "close_conversation": "Fechar conversa"
+        "close_conversation": "Fechar conversa",
+        "find_or_create_contact": "Criar ou Encontrar Contato"
       },
       "triggers": {
         "new_message_received": {
@@ -907,6 +908,10 @@
         "time_based": {
           "label": "Baseado em horário",
           "hint": "Em uma programação recorrente"
+        },
+        "inbound_webhook": {
+          "label": "Webhook de Entrada",
+          "hint": "Um sistema externo (Hotmart, Kiwify, um app próprio, ...) envia um POST para uma URL única"
         }
       },
       "trigger": "Gatilho",
@@ -997,7 +1002,8 @@
           "tag_presence": "Presença de tag",
           "contact_field": "Campo do contato",
           "message_content": "Conteúdo da mensagem",
-          "time_of_day": "Horário do dia"
+          "time_of_day": "Horário do dia",
+          "webhook_field": "Campo do webhook"
         },
         "operandLabel": "Operando",
         "placeholderTime": "HH:mm-HH:mm",
@@ -1013,7 +1019,31 @@
         "matchWord": "Palavra inteira",
         "matchWordHint": "Corresponde à palavra-chave apenas como palavra isolada, então \"k\" não dispara mais em \"thanks\". Ideal para palavras-chave curtas em idiomas separados por espaço; use Contém para idiomas escritos sem espaços.",
         "matchExact": "Exato",
-        "closeConversationHint": "Define o status da conversa como \"fechada\". Nenhuma configuração necessária."
+        "closeConversationHint": "Define o status da conversa como \"fechada\". Nenhuma configuração necessária.",
+        "placeholderWebhookPath": "ex: event.type",
+        "phoneLabel": "Telefone",
+        "nameLabel": "Nome",
+        "placeholderWebhookPhone": "{{ webhook.contact.phone }}",
+        "placeholderWebhookName": "{{ webhook.contact.name }}"
+      },
+      "webhookTrigger": {
+        "saveFirst": "Salve a automação primeiro e volte aqui para gerar a URL do webhook.",
+        "loading": "Carregando…",
+        "hint": "Gere uma URL única para colar nas configurações de webhook de um sistema externo (Hotmart, Kiwify, Zapier, ...).",
+        "generate": "Gerar URL",
+        "createError": "Não foi possível criar o webhook.",
+        "revokeError": "Não foi possível revogar o webhook.",
+        "urlLabel": "URL do webhook",
+        "copy": "Copiar",
+        "copySuccess": "URL copiada",
+        "copyFailed": "Não foi possível copiar",
+        "urlWarning": "Essa URL não será mostrada novamente — copie agora.",
+        "urlAlreadyShown": "A URL já foi mostrada uma vez e não pode ser exibida de novo. Revogue e gere uma nova se perdeu a anterior.",
+        "lastTriggered": "Último disparo: {time}",
+        "revoke": "Revogar"
+      },
+      "webhookField": {
+        "insert": "Inserir campo"
       }
     }
   },
