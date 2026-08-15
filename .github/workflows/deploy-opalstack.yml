@@ -1,9 +1,18 @@
 name: Deploy to Opalstack
 
-# Deploys the already-checked-out app on the Opalstack server by
+# Applies any pending `supabase/migrations/*.sql` to production, then
+# deploys the already-checked-out app on the Opalstack server by
 # fetching latest `main`, rebuilding, and restarting the daemonized
 # Next.js process (see the `start`/`stop` scripts Opalstack generates
 # for a Node.js app resource).
+#
+# Migrations run first, deliberately — the freshly-built app may
+# reference schema a new migration adds, so the schema has to exist
+# before the restarted process starts serving requests against it. If
+# the migration push fails, the job stops there (GitHub Actions' normal
+# fail-fast-between-steps behavior) and the SSH deploy step below never
+# runs — never a good idea to roll out code against a schema that
+# didn't actually update.
 #
 # Gated on the CI workflow's own conclusion (via workflow_run) rather
 # than re-running lint/typecheck/test/build here — avoids duplicating
@@ -33,6 +42,30 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
+      - uses: actions/checkout@v7
+        with:
+          # workflow_run doesn't default to the commit that triggered
+          # it — pin explicitly, so a migration file added in the same
+          # push CI just verified is the one that gets pushed below.
+          # workflow_dispatch has no workflow_run event, so fall back
+          # to the dispatched ref's own sha.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pinned to match .github/workflows/migrations.yml — a CLI
+          # release changing push behaviour should be a deliberate bump
+          # in a PR, not a surprise on the next deploy.
+          version: 2.113.0
+
+      - name: Apply pending migrations to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          supabase link --project-ref iqitekmnkgokzgztxnzt
+          supabase db push
+
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
