@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { MessageTemplate } from "@/types";
+import type { Contact, MessageTemplate } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +34,58 @@ interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
+  /** The contact this conversation belongs to — used to suggest values
+   *  (name/phone/email/company) for template placeholders. */
+  contact?: Contact | null;
+  /** Logged-in agent's display name/email — suggested alongside the
+   *  contact's own fields (e.g. "Aqui é o {{2}}, do..."). */
+  agentName?: string | null;
+  agentEmail?: string | null;
+}
+
+interface SuggestionChip {
+  label: string;
+  value: string;
+}
+
+function buildSuggestions(
+  t: ReturnType<typeof useTranslations>,
+  contact: Contact | null | undefined,
+  agentName: string | null | undefined,
+  agentEmail: string | null | undefined,
+): SuggestionChip[] {
+  const chips: SuggestionChip[] = [];
+  if (contact?.name) chips.push({ label: t("suggestionContactName"), value: contact.name });
+  if (contact?.phone) chips.push({ label: t("suggestionContactPhone"), value: contact.phone });
+  if (contact?.email) chips.push({ label: t("suggestionContactEmail"), value: contact.email });
+  if (contact?.company) chips.push({ label: t("suggestionContactCompany"), value: contact.company });
+  if (agentName) chips.push({ label: t("suggestionAgentName"), value: agentName });
+  if (agentEmail) chips.push({ label: t("suggestionAgentEmail"), value: agentEmail });
+  return chips;
+}
+
+function SuggestionChips({
+  suggestions,
+  onPick,
+}: {
+  suggestions: SuggestionChip[];
+  onPick: (value: string) => void;
+}) {
+  if (suggestions.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {suggestions.map((s) => (
+        <button
+          key={s.label}
+          type="button"
+          onClick={() => onPick(s.value)}
+          className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+        >
+          {s.label}: {s.value}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
@@ -78,8 +130,16 @@ export function TemplatePicker({
   open,
   onOpenChange,
   onSelect,
+  contact,
+  agentName,
+  agentEmail,
 }: TemplatePickerProps) {
   const t = useTranslations("Inbox.templatePicker");
+
+  const suggestions = useMemo(
+    () => buildSuggestions(t, contact, agentName, agentEmail),
+    [t, contact, agentName, agentEmail],
+  );
 
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,6 +332,7 @@ export function TemplatePicker({
                   placeholder={t("headerValuePlaceholder")}
                   className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
                 />
+                <SuggestionChips suggestions={suggestions} onPick={setHeaderText} />
               </div>
             )}
             {slots?.bodyVars.map((v, i) => (
@@ -286,6 +347,14 @@ export function TemplatePicker({
                   }}
                   placeholder={t("bodyValuePlaceholder", { val: `{{${v}}}` })}
                   className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                />
+                <SuggestionChips
+                  suggestions={suggestions}
+                  onPick={(value) => {
+                    const next = [...params];
+                    next[i] = value;
+                    setParams(next);
+                  }}
                 />
               </div>
             ))}
@@ -304,6 +373,12 @@ export function TemplatePicker({
                   }
                   placeholder={t("urlSuffixValuePlaceholder")}
                   className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                />
+                <SuggestionChips
+                  suggestions={suggestions}
+                  onPick={(value) =>
+                    setButtonParams((prev) => ({ ...prev, [slot.index]: value }))
+                  }
                 />
                 <p className="text-[10px] text-muted-foreground break-all">
                   {t("finalUrl", { url: slot.url.replace(/\{\{1\}\}/g, buttonParams[slot.index] || "{{1}}") })}
