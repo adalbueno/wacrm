@@ -1190,7 +1190,6 @@ export function MessageThread({
         onSelect={handleSendTemplate}
         contact={contact}
         agentName={profile?.full_name || undefined}
-        agentEmail={profile?.email || user?.email || undefined}
       />
 
       {/* Full-size viewer for the thread's images/videos. Renders nothing
