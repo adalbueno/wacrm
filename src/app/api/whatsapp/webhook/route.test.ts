@@ -610,7 +610,7 @@ describe('inbound webhook: after() awaits automations (#368)', () => {
 })
 
 describe('status callback: captures why a message failed (901)', () => {
-  it('persists error_message/error_code from Meta\'s errors array on a failed status', async () => {
+  it('persists error_message/error_code from Meta\'s errors array on a failed status, appending error_data.details', async () => {
     await runStatusWebhook([
       {
         id: 'wamid.FAILED1',
@@ -632,8 +632,11 @@ describe('status callback: captures why a message failed (901)', () => {
     expect(h.state.messagesUpdateCalls).toHaveLength(1)
     expect(h.state.messagesUpdateCalls[0]).toEqual({
       status: 'failed',
+      // error_data.details is Meta's fuller explanation — appended the
+      // same way the synchronous send path (MetaApiError) does, so a
+      // template rejected post-send isn't left with a thinner reason.
       error_message:
-        'Message failed to send because more than 24 hours have passed since the customer last replied',
+        'Message failed to send because more than 24 hours have passed since the customer last replied (outside the 24 hour window)',
       error_code: '131047',
     })
   })

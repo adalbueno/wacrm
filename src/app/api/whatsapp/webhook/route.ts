@@ -404,8 +404,16 @@ async function handleStatusUpdate(status: {
   const failureDetail = status.errors?.[0]
   const statusUpdate: Record<string, unknown> = { status: status.status }
   if (status.status === 'failed' && failureDetail) {
-    statusUpdate.error_message =
-      failureDetail.message ?? failureDetail.title ?? null
+    const summary = failureDetail.message ?? failureDetail.title ?? null
+    // error_data.details is Meta's fuller, often more actionable
+    // explanation (e.g. *why* a billing-eligibility failure happened,
+    // not just that one did) — append it the same way the synchronous
+    // send path (meta-api.ts's MetaApiError) already does, so a
+    // template rejected post-send doesn't get a thinner reason than
+    // one rejected immediately.
+    statusUpdate.error_message = failureDetail.error_data?.details
+      ? `${summary} (${failureDetail.error_data.details})`
+      : summary
     statusUpdate.error_code =
       failureDetail.code != null ? String(failureDetail.code) : null
   }
