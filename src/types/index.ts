@@ -594,7 +594,15 @@ export interface CreateDealStepConfig {
   pipeline_id: string;
   stage_id: string;
   title: string;
-  value?: number;
+  /**
+   * Supports `{{ webhook.* }}` / `{{ vars.* }}` interpolation, same as
+   * `title`, plus basic arithmetic on the interpolated result (e.g.
+   * `"{{ webhook.Commissions.charge_amount }} / 100"` for a webhook
+   * that sends amounts in cents) — see
+   * `src/lib/automations/evaluate-numeric-expression.ts`. A plain
+   * number string like `"49.90"` still works exactly as before.
+   */
+  value?: string;
 }
 
 export interface WaitStepConfig {

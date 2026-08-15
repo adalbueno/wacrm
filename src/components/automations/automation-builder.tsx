@@ -197,7 +197,7 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
     case "update_contact_field":
       return { field: "name", value: "" }
     case "create_deal":
-      return { pipeline_id: "", stage_id: "", title: "", value: 0 }
+      return { pipeline_id: "", stage_id: "", title: "", value: "0" }
     case "wait":
       return { amount: 1, unit: "hours" }
     case "condition":
@@ -1810,11 +1810,11 @@ function StepEditor({
             />
           </FieldBlock>
           <FieldBlock label={t("config.valueLabel")}>
-            <Input
-              type="number"
-              value={(cfg.value as number) ?? 0}
-              onChange={(e) => set({ value: Number(e.target.value) })}
-              className="bg-muted text-foreground"
+            <TemplatedField
+              value={cfg.value != null ? String(cfg.value) : "0"}
+              onChange={(v) => set({ value: v })}
+              placeholder={t.raw("config.placeholderDealValue")}
+              t={t}
             />
           </FieldBlock>
         </>
