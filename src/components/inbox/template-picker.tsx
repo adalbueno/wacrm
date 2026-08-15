@@ -34,13 +34,12 @@ interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
-  /** The contact this conversation belongs to — used to suggest values
-   *  (name/phone/email/company) for template placeholders. */
+  /** The contact this conversation belongs to — its first name is
+   *  suggested for template placeholders. */
   contact?: Contact | null;
-  /** Logged-in agent's display name/email — suggested alongside the
-   *  contact's own fields (e.g. "Aqui é o {{2}}, do..."). */
+  /** Logged-in agent's full display name — suggested alongside the
+   *  contact's first name (e.g. "Aqui é o {{2}}, do..."). */
   agentName?: string | null;
-  agentEmail?: string | null;
 }
 
 interface SuggestionChip {
@@ -48,19 +47,22 @@ interface SuggestionChip {
   value: string;
 }
 
+/** First token of the contact's name — templates read more naturally with
+ *  "Oi, João" than the full legal/registered name. */
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0];
+}
+
 function buildSuggestions(
   t: ReturnType<typeof useTranslations>,
   contact: Contact | null | undefined,
   agentName: string | null | undefined,
-  agentEmail: string | null | undefined,
 ): SuggestionChip[] {
   const chips: SuggestionChip[] = [];
-  if (contact?.name) chips.push({ label: t("suggestionContactName"), value: contact.name });
-  if (contact?.phone) chips.push({ label: t("suggestionContactPhone"), value: contact.phone });
-  if (contact?.email) chips.push({ label: t("suggestionContactEmail"), value: contact.email });
-  if (contact?.company) chips.push({ label: t("suggestionContactCompany"), value: contact.company });
+  if (contact?.name) {
+    chips.push({ label: t("suggestionContactName"), value: firstName(contact.name) });
+  }
   if (agentName) chips.push({ label: t("suggestionAgentName"), value: agentName });
-  if (agentEmail) chips.push({ label: t("suggestionAgentEmail"), value: agentEmail });
   return chips;
 }
 
@@ -132,13 +134,12 @@ export function TemplatePicker({
   onSelect,
   contact,
   agentName,
-  agentEmail,
 }: TemplatePickerProps) {
   const t = useTranslations("Inbox.templatePicker");
 
   const suggestions = useMemo(
-    () => buildSuggestions(t, contact, agentName, agentEmail),
-    [t, contact, agentName, agentEmail],
+    () => buildSuggestions(t, contact, agentName),
+    [t, contact, agentName],
   );
 
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
