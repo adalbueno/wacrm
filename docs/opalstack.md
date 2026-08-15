@@ -24,19 +24,37 @@ public domain to it.
 
 `.github/workflows/deploy-opalstack.yml` runs after `CI` succeeds on
 `main` (via `workflow_run` — this deploys the same commit CI just
-verified, not a race against it). It SSHes in with a dedicated deploy
-key (see below) and:
+verified, not a race against it). It:
 
-1. `git fetch origin main && git reset --hard origin/main` in `wacrm/`
+1. Checks out that exact commit, installs the Supabase CLI (pinned to
+   the same version as `migrations.yml`), links to the production
+   project, and runs `supabase db push` — applies any
+   `supabase/migrations/*.sql` that isn't in production's
+   `schema_migrations` yet, **before** the app restarts. If this step
+   fails, the job stops here — the SSH deploy steps below never run,
+   so code that depends on a schema change never ships against a
+   database that doesn't have it.
+2. SSHes in with a dedicated deploy key (see below) and, in
+   `wacrm/`: `git fetch origin main && git reset --hard origin/main`
    — hard reset, not a plain pull, so the server always matches GitHub
    exactly regardless of any stray local edit.
-2. `source ../activate` to get this app's Node onto `PATH`.
-3. `npm ci && npm run build`.
-4. `../stop || true && ../start` — restart the daemon. `stop` exits
+3. `source ../activate` to get this app's Node onto `PATH`.
+4. `npm ci && npm run build`.
+5. `../stop || true && ../start` — restart the daemon. `stop` exits
    non-zero if the app was already stopped, hence `|| true`.
-5. A health check (`curl` against `127.0.0.1:1197/`) — the job fails
+6. A health check (`curl` against `127.0.0.1:1197/`) — the job fails
    loudly if the restarted process isn't answering, rather than
    reporting a green deploy that's actually down.
+
+### Migration credentials
+
+`supabase db push` needs its own two secrets, separate from the
+Opalstack deploy key: `SUPABASE_ACCESS_TOKEN` (a personal access token
+— [dashboard/account/tokens](https://supabase.com/dashboard/account/tokens))
+and `SUPABASE_DB_PASSWORD` (the production project's database
+password — Project Settings → Database). The project ref itself
+(`iqitekmnkgokzgztxnzt`) isn't sensitive and is inlined in the
+workflow.
 
 ### `workflow_dispatch`
 
