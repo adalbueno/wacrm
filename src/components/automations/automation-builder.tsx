@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react"
@@ -34,6 +35,7 @@ import {
   MousePointerClick,
   List,
   UserPlus,
+  Braces,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -72,6 +74,8 @@ import {
   type ParentScope,
   type StepPath,
 } from "@/lib/automations/builder-tree"
+import { flattenPayload } from "@/lib/automations/flatten-payload"
+import { formatRelative } from "@/lib/automations/trigger-meta"
 import { cn } from "@/lib/utils"
 
 // ------------------------------------------------------------
@@ -121,11 +125,6 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   condition: { label: "condition", icon: GitBranch, border: "border-l-amber-500" },
   send_webhook: { label: "send_webhook", icon: Webhook, border: "border-l-primary" },
   close_conversation: { label: "close_conversation", icon: CircleSlash, border: "border-l-primary" },
-  // Not yet in ADDABLE_STEPS — its config form (phone/name fields with
-  // {{webhook.*}} insertion) lands in a later PR. This entry only
-  // exists to satisfy Record<AutomationStepType, StepMeta>'s
-  // exhaustiveness so the type stays a compile-time guarantee that
-  // every step type has a picker entry once it's ready to expose.
   find_or_create_contact: { label: "find_or_create_contact", icon: UserPlus, border: "border-l-primary" },
 }
 
@@ -139,6 +138,7 @@ const ADDABLE_STEPS: AutomationStepType[] = [
   "assign_conversation",
   "update_contact_field",
   "create_deal",
+  "find_or_create_contact",
   "wait",
   "condition",
   "send_webhook",
@@ -154,6 +154,7 @@ const TRIGGER_OPTIONS: { value: AutomationTriggerType }[] = [
   { value: "conversation_assigned" },
   { value: "tag_added" },
   { value: "time_based" },
+  { value: "inbound_webhook" },
 ]
 
 function cid(): string {
@@ -204,6 +205,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return { url: "", headers: {}, body_template: "" }
     case "close_conversation":
       return {}
+    case "find_or_create_contact":
+      return { phone: "", name: "" }
     default:
       return {}
   }
@@ -226,6 +229,22 @@ interface AutomationResources {
   customFields: CustomField[]
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
+  /** Undefined until the automation has been saved once — the inbound
+   *  webhook trigger needs a real automation_id to attach to. */
+  automationId?: string
+  webhookTrigger: WebhookTriggerInfo | null
+  /** False until the initial GET resolves — lets consumers tell "no
+   *  trigger yet" apart from "haven't checked yet". */
+  webhookTriggerLoaded: boolean
+  refreshWebhookTrigger: () => void
+}
+
+interface WebhookTriggerInfo {
+  id: string
+  name: string | null
+  is_active: boolean
+  last_triggered_at: string | null
+  last_payload_sample: unknown
 }
 
 interface PipelineOption {
@@ -247,19 +266,62 @@ const ResourcesContext = createContext<AutomationResources>({
   customFields: [],
   pipelines: [],
   stages: [],
+  webhookTrigger: null,
+  webhookTriggerLoaded: false,
+  refreshWebhookTrigger: () => {},
 })
 
 function useResources(): AutomationResources {
   return useContext(ResourcesContext)
 }
 
-function ResourcesProvider({ children }: { children: ReactNode }) {
+function ResourcesProvider({
+  automationId,
+  children,
+}: {
+  automationId?: string
+  children: ReactNode
+}) {
   const [tags, setTags] = useState<TagRecord[]>([])
   const [members, setMembers] = useState<AccountMember[]>([])
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [pipelines, setPipelines] = useState<PipelineOption[]>([])
   const [stages, setStages] = useState<PipelineStageOption[]>([])
+  const [webhookTrigger, setWebhookTrigger] = useState<WebhookTriggerInfo | null>(null)
+  const [webhookTriggerLoaded, setWebhookTriggerLoaded] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
+  const refreshWebhookTrigger = () => setRefreshTick((n) => n + 1)
+
+  // Only an already-saved automation has an id to attach a trigger to.
+  // Re-fetches on refreshWebhookTrigger() so create/revoke actions in
+  // the trigger panel update this without a full page reload.
+  useEffect(() => {
+    if (!automationId) {
+      setWebhookTriggerLoaded(true)
+      return
+    }
+    let cancelled = false
+    setWebhookTriggerLoaded(false)
+    void (async () => {
+      try {
+        const res = await fetch(`/api/automations/${automationId}/webhook-trigger`, {
+          cache: "no-store",
+        })
+        if (!res.ok) return
+        const json = (await res.json()) as { trigger?: WebhookTriggerInfo | null }
+        if (!cancelled) setWebhookTrigger(json.trigger ?? null)
+      } catch {
+        // Route unreachable (older deployment, offline) — trigger panel
+        // falls back to its "can't load" state.
+      } finally {
+        if (!cancelled) setWebhookTriggerLoaded(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [automationId, refreshTick])
 
   useEffect(() => {
     let cancelled = false
@@ -314,7 +376,18 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
 
   return (
     <ResourcesContext.Provider
-      value={{ tags, members, templates, customFields, pipelines, stages }}
+      value={{
+        tags,
+        members,
+        templates,
+        customFields,
+        pipelines,
+        stages,
+        automationId,
+        webhookTrigger,
+        webhookTriggerLoaded,
+        refreshWebhookTrigger,
+      }}
     >
       {children}
     </ResourcesContext.Provider>
@@ -767,7 +840,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
       <div className="relative flex-1 overflow-y-auto">
         <div className="absolute inset-0 bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none" />
         <div className="relative mx-auto flex max-w-2xl flex-col items-center gap-0 px-4 py-10">
-          <ResourcesProvider>
+          <ResourcesProvider automationId={initial.id}>
             <TriggerCard
               type={state.trigger_type}
               config={state.trigger_config}
@@ -895,9 +968,245 @@ function TriggerCard({
                 </p>
               </div>
             )}
+            {type === "inbound_webhook" && <InboundWebhookTriggerPanel t={t} />}
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------
+// Inbound webhook trigger: generate/show/revoke the URL, and the
+// shared "insert a field from the last received payload" helper used
+// here (as a raw path, for the condition operand) and in
+// TemplatedField (wrapped as `{{webhook.<path>}}`, for every other
+// templated text field a step exposes).
+// ------------------------------------------------------------
+
+function InboundWebhookTriggerPanel({ t }: { t: ReturnType<typeof useTranslations> }) {
+  const { automationId, webhookTrigger, webhookTriggerLoaded, refreshWebhookTrigger } =
+    useResources()
+  const [creating, setCreating] = useState(false)
+  const [revoking, setRevoking] = useState(false)
+  const [justCreatedUrl, setJustCreatedUrl] = useState<string | null>(null)
+
+  if (!automationId) {
+    return (
+      <p className="text-xs text-muted-foreground">{t("webhookTrigger.saveFirst")}</p>
+    )
+  }
+
+  if (!webhookTriggerLoaded) {
+    return <p className="text-xs text-muted-foreground">{t("webhookTrigger.loading")}</p>
+  }
+
+  async function handleGenerate() {
+    setCreating(true)
+    try {
+      const res = await fetch(`/api/automations/${automationId}/webhook-trigger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(payload.error || t("webhookTrigger.createError"))
+        return
+      }
+      setJustCreatedUrl(payload.url as string)
+      refreshWebhookTrigger()
+    } catch {
+      toast.error(t("webhookTrigger.createError"))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function handleRevoke() {
+    if (!automationId) return
+    setRevoking(true)
+    try {
+      const res = await fetch(`/api/automations/${automationId}/webhook-trigger`, {
+        method: "DELETE",
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        toast.error(payload.error || t("webhookTrigger.revokeError"))
+        return
+      }
+      setJustCreatedUrl(null)
+      refreshWebhookTrigger()
+    } catch {
+      toast.error(t("webhookTrigger.revokeError"))
+    } finally {
+      setRevoking(false)
+    }
+  }
+
+  async function copyUrl() {
+    if (!justCreatedUrl) return
+    try {
+      await navigator.clipboard.writeText(justCreatedUrl)
+      toast.success(t("webhookTrigger.copySuccess"))
+    } catch {
+      toast.error(t("webhookTrigger.copyFailed"))
+    }
+  }
+
+  if (!webhookTrigger) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">{t("webhookTrigger.hint")}</p>
+        <Button
+          type="button"
+          size="sm"
+          onClick={handleGenerate}
+          disabled={creating}
+          className="w-full"
+        >
+          {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {t("webhookTrigger.generate")}
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {justCreatedUrl ? (
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-muted-foreground">
+            {t("webhookTrigger.urlLabel")}
+          </label>
+          <div className="flex gap-1.5">
+            <Input
+              readOnly
+              value={justCreatedUrl}
+              onFocus={(e) => e.currentTarget.select()}
+              className="bg-muted font-mono text-xs text-foreground"
+            />
+            <Button type="button" size="sm" variant="outline" onClick={copyUrl}>
+              {t("webhookTrigger.copy")}
+            </Button>
+          </div>
+          <p className="text-[11px] text-amber-500">{t("webhookTrigger.urlWarning")}</p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          {t("webhookTrigger.urlAlreadyShown")}
+        </p>
+      )}
+      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <span>
+          {t("webhookTrigger.lastTriggered", {
+            time: formatRelative(webhookTrigger.last_triggered_at),
+          })}
+        </span>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={handleRevoke}
+        disabled={revoking}
+        className="w-full text-destructive hover:text-destructive"
+      >
+        {revoking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+        {t("webhookTrigger.revoke")}
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * Dropdown listing every field found in the trigger's last received
+ * payload (`{path, preview}}`, via `flattenPayload`) so a user doesn't
+ * have to know the sender's JSON shape by heart. Purely a picker —
+ * callers decide what clicking a row does (wrap as `{{webhook.path}}`
+ * for a templated text field, or use the raw path for the condition
+ * operand). Renders nothing when there's no sample yet.
+ */
+function WebhookFieldPicker({
+  sample,
+  onInsert,
+  t,
+}: {
+  sample: unknown
+  onInsert: (path: string) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const fields = useMemo(() => flattenPayload(sample), [sample])
+  if (fields.length === 0) return null
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="inline-flex items-center gap-1 self-start rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+        <Braces className="h-3 w-3" />
+        {t("webhookField.insert")}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="max-h-64 min-w-64 overflow-y-auto border-border bg-popover"
+      >
+        {fields.map((f) => (
+          <DropdownMenuItem key={f.path} onClick={() => onInsert(f.path)}>
+            <span className="truncate font-mono text-xs">{f.path}</span>
+            <span className="ml-auto truncate text-xs text-muted-foreground">
+              {f.preview}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * Input/Textarea plus the field picker, wired to append
+ * `{{webhook.<path>}}` at the end of the current value. This is the
+ * one place every templated text field (send_message, update_contact_
+ * field, create_deal, send_webhook, find_or_create_contact) plugs
+ * into — the picker itself doesn't know or care which step it's in.
+ */
+function TemplatedField({
+  value,
+  onChange,
+  placeholder,
+  multiline,
+  className,
+  t,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  multiline?: boolean
+  className?: string
+  t: ReturnType<typeof useTranslations>
+}) {
+  const { webhookTrigger } = useResources()
+  const sample = webhookTrigger?.last_payload_sample
+  const insert = (path: string) => {
+    const placeholderTxt = `{{webhook.${path}}}`
+    onChange(value ? `${value} ${placeholderTxt}` : placeholderTxt)
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      {multiline ? (
+        <Textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={cn("min-h-24 bg-muted text-foreground", className)}
+        />
+      ) : (
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={cn("bg-muted text-foreground", className)}
+        />
+      )}
+      {sample != null && <WebhookFieldPicker sample={sample} onInsert={insert} t={t} />}
     </div>
   )
 }
@@ -1305,6 +1614,7 @@ function StepEditor({
   onChange: (s: BuilderStep) => void
 }) {
   const t = useTranslations("Automations.builder")
+  const { webhookTrigger } = useResources()
   const cfg = step.step_config
   const set = (patch: Record<string, unknown>) =>
     onChange({ ...step, step_config: { ...cfg, ...patch } })
@@ -1313,11 +1623,12 @@ function StepEditor({
     case "send_message":
       return (
         <FieldBlock label={t("config.messageText")}>
-          <Textarea
+          <TemplatedField
+            multiline
             value={(cfg.text as string) ?? ""}
-            onChange={(e) => set({ text: e.target.value })}
+            onChange={(v) => set({ text: v })}
             placeholder={t("config.placeholderMessageText")}
-            className="min-h-24 bg-muted text-foreground"
+            t={t}
           />
         </FieldBlock>
       )
@@ -1388,11 +1699,11 @@ function StepEditor({
             />
           </FieldBlock>
           <FieldBlock label={t("config.valueLabel")}>
-            <Input
+            <TemplatedField
               value={(cfg.value as string) ?? ""}
-              onChange={(e) => set({ value: e.target.value })}
+              onChange={(v) => set({ value: v })}
               placeholder={t.raw("config.placeholderValue")}
-              className="bg-muted text-foreground"
+              t={t}
             />
           </FieldBlock>
         </>
@@ -1407,10 +1718,10 @@ function StepEditor({
             t={t}
           />
           <FieldBlock label={t("config.titleLabel")}>
-            <Input
+            <TemplatedField
               value={(cfg.title as string) ?? ""}
-              onChange={(e) => set({ title: e.target.value })}
-              className="bg-muted text-foreground"
+              onChange={(v) => set({ title: v })}
+              t={t}
             />
           </FieldBlock>
           <FieldBlock label={t("config.valueLabel")}>
@@ -1448,7 +1759,9 @@ function StepEditor({
           </FieldBlock>
         </div>
       )
-    case "condition":
+    case "condition": {
+      const sample = webhookTrigger?.last_payload_sample
+      const isWebhookField = cfg.subject === "webhook_field"
       return (
         <>
           <FieldBlock label={t("config.subjectLabel")}>
@@ -1461,26 +1774,36 @@ function StepEditor({
               <option value="contact_field">{t("config.subjects.contact_field")}</option>
               <option value="message_content">{t("config.subjects.message_content")}</option>
               <option value="time_of_day">{t("config.subjects.time_of_day")}</option>
+              <option value="webhook_field">{t("config.subjects.webhook_field")}</option>
             </select>
           </FieldBlock>
           <FieldBlock label={t("config.operandLabel")}>
-            <Input
-              placeholder={
-                cfg.subject === "time_of_day"
-                  ? t("config.placeholderTime")
-                  : cfg.subject === "contact_field"
-                  ? t("config.placeholderContact")
-                  : cfg.subject === "tag_presence"
-                  ? t("config.placeholderTag")
-                  : ""
-              }
-              value={(cfg.operand as string) ?? ""}
-              onChange={(e) => set({ operand: e.target.value })}
-              className="bg-muted text-foreground"
-            />
+            <div className="flex flex-col gap-1.5">
+              <Input
+                placeholder={
+                  cfg.subject === "time_of_day"
+                    ? t("config.placeholderTime")
+                    : cfg.subject === "contact_field"
+                    ? t("config.placeholderContact")
+                    : cfg.subject === "tag_presence"
+                    ? t("config.placeholderTag")
+                    : isWebhookField
+                    ? t("config.placeholderWebhookPath")
+                    : ""
+                }
+                value={(cfg.operand as string) ?? ""}
+                onChange={(e) => set({ operand: e.target.value })}
+                className="bg-muted text-foreground"
+              />
+              {isWebhookField && sample != null && (
+                <WebhookFieldPicker sample={sample} onInsert={(path) => set({ operand: path })} t={t} />
+              )}
+            </div>
           </FieldBlock>
-          {(cfg.subject === "contact_field" || cfg.subject === "message_content") && (
-            <FieldBlock label="Value">
+          {(cfg.subject === "contact_field" ||
+            cfg.subject === "message_content" ||
+            isWebhookField) && (
+            <FieldBlock label={t("config.valueLabel")}>
               <Input
                 value={(cfg.value as string) ?? ""}
                 onChange={(e) => set({ value: e.target.value })}
@@ -1490,6 +1813,7 @@ function StepEditor({
           )}
         </>
       )
+    }
     case "send_webhook":
       return (
         <>
@@ -1501,10 +1825,33 @@ function StepEditor({
             />
           </FieldBlock>
           <FieldBlock label={t("config.bodyTemplateLabel")}>
-            <Textarea
+            <TemplatedField
+              multiline
               value={(cfg.body_template as string) ?? ""}
-              onChange={(e) => set({ body_template: e.target.value })}
-              className="min-h-20 bg-muted font-mono text-xs text-foreground"
+              onChange={(v) => set({ body_template: v })}
+              className="min-h-20 font-mono text-xs"
+              t={t}
+            />
+          </FieldBlock>
+        </>
+      )
+    case "find_or_create_contact":
+      return (
+        <>
+          <FieldBlock label={t("config.phoneLabel")}>
+            <TemplatedField
+              value={(cfg.phone as string) ?? ""}
+              onChange={(v) => set({ phone: v })}
+              placeholder={t.raw("config.placeholderWebhookPhone")}
+              t={t}
+            />
+          </FieldBlock>
+          <FieldBlock label={t("config.nameLabel")}>
+            <TemplatedField
+              value={(cfg.name as string) ?? ""}
+              onChange={(v) => set({ name: v })}
+              placeholder={t.raw("config.placeholderWebhookName")}
+              t={t}
             />
           </FieldBlock>
         </>

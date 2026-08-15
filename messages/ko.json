@@ -873,7 +873,8 @@
         "wait": "대기",
         "condition": "조건 (If/Else)",
         "send_webhook": "웹훅 보내기",
-        "close_conversation": "대화 닫기"
+        "close_conversation": "대화 닫기",
+        "find_or_create_contact": "연락처 찾기 또는 생성"
       },
       "triggers": {
         "new_message_received": {
@@ -907,6 +908,10 @@
         "time_based": {
           "label": "시간 기반",
           "hint": "반복 일정에 따라"
+        },
+        "inbound_webhook": {
+          "label": "인바운드 웹훅",
+          "hint": "외부 시스템(Hotmart, Kiwify, 자체 앱 등)이 고유 URL로 POST 요청을 보냅니다"
         }
       },
       "trigger": "트리거",
@@ -997,7 +1002,8 @@
           "tag_presence": "태그 존재 여부",
           "contact_field": "연락처 필드",
           "message_content": "메시지 내용",
-          "time_of_day": "시간대"
+          "time_of_day": "시간대",
+          "webhook_field": "웹훅 필드"
         },
         "operandLabel": "피연산자",
         "placeholderTime": "HH:mm-HH:mm",
@@ -1013,7 +1019,31 @@
         "matchWord": "단어 단위 일치",
         "matchWordHint": "키워드가 독립된 단어일 때만 일치하므로 \"k\"가 \"thanks\"에서 실행되지 않습니다. 공백으로 단어를 구분하는 언어의 짧은 키워드에 적합하며, 공백 없이 표기하는 언어에는 \"포함\"을 사용하세요.",
         "matchExact": "정확히 일치",
-        "closeConversationHint": "대화 상태를 \"닫힘\"으로 설정합니다. 추가 설정이 필요 없습니다."
+        "closeConversationHint": "대화 상태를 \"닫힘\"으로 설정합니다. 추가 설정이 필요 없습니다.",
+        "placeholderWebhookPath": "예: event.type",
+        "phoneLabel": "전화번호",
+        "nameLabel": "이름",
+        "placeholderWebhookPhone": "{{ webhook.contact.phone }}",
+        "placeholderWebhookName": "{{ webhook.contact.name }}"
+      },
+      "webhookTrigger": {
+        "saveFirst": "먼저 자동화를 저장한 다음 여기로 돌아와 웹훅 URL을 생성하세요.",
+        "loading": "불러오는 중…",
+        "hint": "외부 시스템(Hotmart, Kiwify, Zapier 등)의 웹훅 설정에 붙여넣을 고유 URL을 생성합니다.",
+        "generate": "URL 생성",
+        "createError": "웹훅 트리거를 생성할 수 없습니다.",
+        "revokeError": "웹훅 트리거를 취소할 수 없습니다.",
+        "urlLabel": "웹훅 URL",
+        "copy": "복사",
+        "copySuccess": "URL이 복사되었습니다",
+        "copyFailed": "복사할 수 없습니다",
+        "urlWarning": "이 URL은 다시 표시되지 않습니다 — 지금 복사하세요.",
+        "urlAlreadyShown": "URL은 이미 한 번 표시되었으며 다시 표시할 수 없습니다. 분실한 경우 취소하고 새로 생성하세요.",
+        "lastTriggered": "마지막 실행: {time}",
+        "revoke": "취소"
+      },
+      "webhookField": {
+        "insert": "필드 삽입"
       }
     }
   },
