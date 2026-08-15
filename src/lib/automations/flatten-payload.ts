@@ -15,10 +15,16 @@ export interface FlattenedField {
   preview: string;
 }
 
-const MAX_DEPTH = 4;
-const MAX_ENTRIES = 60;
-const MAX_ARRAY_ITEMS = 5;
-const MAX_PREVIEW_LEN = 40;
+// A real webhook payload from a platform like Kiwify or Hotmart
+// routinely nests 5-6 levels deep (e.g. Subscription.charges.
+// completed[0].card_type) and can carry well over 60 leaf fields —
+// the original caps here (depth 4, 60 entries) were sized from a
+// guess, not a real payload, and silently swallowed genuinely useful
+// fields. These are generous on purpose; MAX_ENTRIES is still the
+// real backstop against a pathological payload, the dropdown/preview
+// containers scroll rather than grow unbounded.
+const MAX_DEPTH = 10;
+const MAX_ENTRIES = 500;
 
 export function flattenPayload(value: unknown): FlattenedField[] {
   const out: FlattenedField[] = [];
@@ -44,7 +50,7 @@ function walk(
       out.push({ path, preview: `[${value.length} items]` });
       return;
     }
-    for (let i = 0; i < Math.min(value.length, MAX_ARRAY_ITEMS); i++) {
+    for (let i = 0; i < value.length; i++) {
       walk(value[i], `${path}[${i}]`, depth + 1, out);
       if (out.length >= MAX_ENTRIES) return;
     }
@@ -63,11 +69,10 @@ function walk(
     return;
   }
 
-  // Primitive leaf.
-  if (path) out.push({ path, preview: preview(value) });
-}
-
-function preview(value: unknown): string {
-  const s = String(value);
-  return s.length > MAX_PREVIEW_LEN ? `${s.slice(0, MAX_PREVIEW_LEN)}…` : s;
+  // Primitive leaf. Full value, untruncated — callers that render this
+  // in constrained space (the field picker, the trigger panel's
+  // payload preview) truncate visually with CSS and rely on a `title`
+  // attribute to show the whole thing on hover, so truncating the
+  // string itself here would just make that tooltip useless too.
+  if (path) out.push({ path, preview: String(value) });
 }

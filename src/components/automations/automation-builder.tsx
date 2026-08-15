@@ -1182,8 +1182,15 @@ function WebhookPayloadPreview({
         ) : (
           fields.map((f) => (
             <div key={f.path} className="flex items-center gap-2 text-[11px]">
-              <span className="truncate font-mono text-foreground">{f.path}</span>
-              <span className="ml-auto truncate text-muted-foreground">{f.preview}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-foreground" title={f.path}>
+                {f.path}
+              </span>
+              <span
+                className="max-w-28 shrink-0 truncate text-muted-foreground"
+                title={f.preview}
+              >
+                {f.preview}
+              </span>
             </div>
           ))
         )}
@@ -1219,12 +1226,17 @@ function WebhookFieldPicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="max-h-64 min-w-64 overflow-y-auto border-border bg-popover"
+        className="max-h-64 w-96 max-w-[90vw] overflow-y-auto border-border bg-popover"
       >
         {fields.map((f) => (
           <DropdownMenuItem key={f.path} onClick={() => onInsert(f.path)}>
-            <span className="truncate font-mono text-xs">{f.path}</span>
-            <span className="ml-auto truncate text-xs text-muted-foreground">
+            <span className="min-w-0 flex-1 truncate font-mono text-xs" title={f.path}>
+              {f.path}
+            </span>
+            <span
+              className="ml-2 max-w-28 shrink-0 truncate text-xs text-muted-foreground"
+              title={f.preview}
+            >
               {f.preview}
             </span>
           </DropdownMenuItem>
