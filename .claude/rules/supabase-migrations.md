@@ -12,6 +12,20 @@ ls supabase/migrations | sort | tail -1
 
 Never renumber or edit an already-merged migration — a migration that already ran in some deployment is immutable. If a merged migration was wrong, write a new migration that corrects it.
 
+### Version collisions from syncing with upstream
+
+This fork and `upstream` (`ArnasDon/wacrm`) each pick "current max + 1" independently, so a migration written on this fork's `main` and one written on upstream's `main` can end up claiming the same number — checking the local max before writing a migration doesn't see numbers upstream added after that point. Merging then fails a clean `supabase db reset` with a duplicate `schema_migrations` key (SQLSTATE 23505); upstream has hit this internally too (see the note at the top of `034_fix_profiles_update_rls.sql`).
+
+There is deliberately **one migration sequence, not two** — Postgres has no concept of parallel migration lines, and maintaining one would just move the collision problem into "which line applies first" instead of removing it. When a sync surfaces a collision:
+
+1. Identify which of the colliding files is this fork's own (not upstream's) — upstream's file keeps its number, since it may already be applied in other forks/deployments of the template.
+2. Rename this fork's file to the next free number after the highest number in the merged set (`ls supabase/migrations | sort | tail -1`).
+3. Add a one-line note at the top of the renamed file's header explaining the rename (old number, why, and that it's independent of the migrations now sitting between the old and new slot — verify that independence, don't just assert it).
+4. Verify with an actual local replay before considering the fix done — `supabase db reset --local --no-seed` followed by `supabase db query --local --file supabase/ci/verify-schema.sql` (matches what `.github/workflows/migrations.yml` runs). Don't rely on `supabase db start` alone; it's a no-op against a database that already exists and won't catch this.
+5. This is a fix, not part of the sync merge itself — it goes on its own branch/PR (see `AGENTS.md`'s Git Workflow section), not a direct commit to `main`.
+
+If this fork's migration was already applied to a real deployed Supabase project under the old number before the collision was discovered, the rename only fixes the file going forward — that project's `supabase_migrations.schema_migrations` history still has a row for the old number. Reconciling that (or accepting the drift) is a deployment-specific judgment call, not something the file rename resolves by itself.
+
 ## Idempotency — every migration must be safe to run twice
 
 Postgres has no `CREATE POLICY IF NOT EXISTS`, so the pattern throughout this repo is:
