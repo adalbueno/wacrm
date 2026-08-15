@@ -40,7 +40,16 @@ interface MessageBubbleProps {
   onOpenMedia?: (messageId: string) => void;
 }
 
-function StatusIcon({ status }: { status: Message["status"] }) {
+function StatusIcon({
+  status,
+  errorMessage,
+  fallbackTitle,
+}: {
+  status: Message["status"];
+  /** Reason from message.error_message — shown as a tooltip when present. */
+  errorMessage?: string | null;
+  fallbackTitle?: string;
+}) {
   switch (status) {
     case "sending":
       return <Clock className="h-3 w-3 text-muted-foreground" />;
@@ -51,7 +60,11 @@ function StatusIcon({ status }: { status: Message["status"] }) {
     case "read":
       return <CheckCheck className="h-3 w-3 text-blue-400" />;
     case "failed":
-      return <XCircle className="h-3 w-3 text-red-400" />;
+      return (
+        <span title={errorMessage || fallbackTitle}>
+          <XCircle className="h-3 w-3 text-red-400" />
+        </span>
+      );
     default:
       return null;
   }
@@ -289,7 +302,13 @@ export function MessageBubble({
           >
             {time}
           </span>
-          {isAgent && <StatusIcon status={message.status} />}
+          {isAgent && (
+            <StatusIcon
+              status={message.status}
+              errorMessage={message.error_message}
+              fallbackTitle={t("sendFailedTooltip")}
+            />
+          )}
         </div>
       </div>
       {reactions && reactions.length > 0 && onToggleReaction && (

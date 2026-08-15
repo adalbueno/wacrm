@@ -713,7 +713,7 @@ export function MessageThread({
           const reason = payload?.error || `HTTP ${res.status}`;
           console.error("Failed to send template:", reason);
           toast.error(`Failed to send template: ${reason}`);
-          onUpdateMessage(tempId, { status: "failed" });
+          onUpdateMessage(tempId, { status: "failed", error_message: reason });
           return;
         }
 
@@ -722,7 +722,7 @@ export function MessageThread({
         console.error("Failed to send template:", err);
         const reason = err instanceof Error ? err.message : "network error";
         toast.error(`Failed to send template: ${reason}`);
-        onUpdateMessage(tempId, { status: "failed" });
+        onUpdateMessage(tempId, { status: "failed", error_message: reason });
       }
     },
     [conversation, onNewMessage, onUpdateMessage],

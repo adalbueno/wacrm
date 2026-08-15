@@ -91,6 +91,18 @@ interface WhatsAppWebhookEntry {
         status: string
         timestamp: string
         recipient_id: string
+        /**
+         * Present when status === 'failed'. Meta's actual reason for
+         * the failure (template rejected post-send, recipient
+         * unreachable, etc) — otherwise handleStatusUpdate only has
+         * the bare status string to record.
+         */
+        errors?: Array<{
+          code?: number
+          title?: string
+          message?: string
+          error_data?: { details?: string }
+        }>
       }>
     }
     field: string
@@ -369,15 +381,38 @@ async function handleStatusUpdate(status: {
   status: string
   timestamp: string
   recipient_id: string
+  errors?: Array<{
+    code?: number
+    title?: string
+    message?: string
+    error_data?: { details?: string }
+  }>
 }) {
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status. No
   //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
   //    repeat across numbers), so this updates 0..N rows and must not
   //    assume a single row.
+  //
+  //    On a 'failed' status, also capture *why* from Meta's `errors`
+  //    array (901_message_error_details.sql) — without this, a
+  //    message that sent successfully and only failed later (e.g. a
+  //    rejected template, an unreachable recipient) flips to 'failed'
+  //    with no reason anywhere the user can see. Only set these keys
+  //    for a 'failed' status; omitting them on every other transition
+  //    means `.update()` never clobbers a previously-recorded reason.
+  const failureDetail = status.errors?.[0]
+  const statusUpdate: Record<string, unknown> = { status: status.status }
+  if (status.status === 'failed' && failureDetail) {
+    statusUpdate.error_message =
+      failureDetail.message ?? failureDetail.title ?? null
+    statusUpdate.error_code =
+      failureDetail.code != null ? String(failureDetail.code) : null
+  }
+
   const { error: msgErr } = await supabaseAdmin()
     .from('messages')
-    .update({ status: status.status })
+    .update(statusUpdate)
     .eq('message_id', status.id)
 
   if (msgErr) {

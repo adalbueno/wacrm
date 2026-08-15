@@ -27,8 +27,10 @@ import {
   sendMediaMessage,
   sendInteractiveButtons,
   sendInteractiveList,
+  MetaApiError,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api';
+import { TemplateValidationError } from '@/lib/whatsapp/template-send-builder';
 import {
   validateInteractivePayload,
   interactivePayloadPreviewText,
@@ -402,6 +404,31 @@ export async function sendMessageToConversation(
     return result.messageId;
   };
 
+  // Persist the sent/failed message. Field names MUST match the
+  // messages schema (see 001_initial_schema.sql).
+  // Interactive messages persist the body as content_text (so the
+  // conversation-list preview reads sensibly) plus the full structured
+  // payload so the thread can re-render the buttons / rows.
+  //
+  // Templates persist the *substituted* body. The composer pre-renders
+  // and posts it as contentText; every other caller (the public API,
+  // most importantly) sends none, and storing null there left the
+  // Inbox rendering an empty bubble — issue #483.
+  //
+  // Computed before the send attempt (not just on success) so the
+  // catch block below can persist a failed row with the same readable
+  // content_text a successful send would have gotten.
+  const persistedText =
+    messageType === 'interactive'
+      ? interactivePayload!.body
+      : messageType === 'template'
+        ? templateContentText(
+            templateRow,
+            templateBodyParams(templateParams, templateMessageParams),
+            contentText
+          )
+        : (contentText ?? null);
+
   // Send via Meta — retry across phone-number variants if Meta rejects
   // with "recipient not in allowed list"; persist a working variant
   // back to the contact so the next send goes straight through.
@@ -431,10 +458,63 @@ export async function sendMessageToConversation(
 
     if (lastError) throw lastError;
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+    // Distinguish a local template-config problem (buildSendComponents
+    // validation — never reached Meta) from an actual Meta API
+    // rejection, so neither the persisted reason nor the thrown error
+    // mislabels one as the other.
+    let sendErrorCode = 'meta_error';
+    let httpStatus = 502;
+    let errorMessage: string;
+    let errorCode: string | null = null;
+
+    if (err instanceof TemplateValidationError) {
+      sendErrorCode = 'validation_error';
+      httpStatus = 400;
+      errorMessage = err.message;
+    } else if (err instanceof MetaApiError) {
+      errorMessage = err.errorData?.details
+        ? `${err.message} (${err.errorData.details})`
+        : err.message;
+      errorCode = err.code != null ? String(err.code) : (err.type ?? null);
+    } else {
+      errorMessage =
+        err instanceof Error ? err.message : 'Unknown Meta API error';
+    }
+
+    console.error('[send-message] send failed:', errorMessage);
+
+    // Best-effort — a failure to record the failure must not mask the
+    // original error being thrown below.
+    try {
+      await db.from('messages').insert({
+        conversation_id: conversationId,
+        sender_type: 'agent',
+        content_type: messageType,
+        content_text: persistedText,
+        media_url: mediaUrl || null,
+        template_name: templateName || null,
+        interactive_payload:
+          messageType === 'interactive' ? interactivePayload : null,
+        message_id: null,
+        status: 'failed',
+        error_message: errorMessage,
+        error_code: errorCode,
+        reply_to_message_id: replyToMessageId || null,
+      });
+    } catch (persistErr) {
+      console.error(
+        '[send-message] failed to persist failed-send row:',
+        persistErr instanceof Error ? persistErr.message : persistErr
+      );
+    }
+
+    throw new SendMessageError(
+      sendErrorCode,
+      sendErrorCode === 'validation_error'
+        ? errorMessage
+        : `Meta API error: ${errorMessage}`,
+      httpStatus
+    );
   }
 
   if (workingPhone !== sanitizedPhone) {
@@ -446,27 +526,6 @@ export async function sendMessageToConversation(
       .update({ phone: workingPhone })
       .eq('id', contact.id);
   }
-
-  // Persist the sent message. Field names MUST match the messages
-  // schema (see 001_initial_schema.sql).
-  // Interactive messages persist the body as content_text (so the
-  // conversation-list preview reads sensibly) plus the full structured
-  // payload so the thread can re-render the buttons / rows.
-  //
-  // Templates persist the *substituted* body. The composer pre-renders
-  // and posts it as contentText; every other caller (the public API,
-  // most importantly) sends none, and storing null there left the
-  // Inbox rendering an empty bubble — issue #483.
-  const persistedText =
-    messageType === 'interactive'
-      ? interactivePayload!.body
-      : messageType === 'template'
-        ? templateContentText(
-            templateRow,
-            templateBodyParams(templateParams, templateMessageParams),
-            contentText
-          )
-        : (contentText ?? null);
 
   const { data: messageRecord, error: msgError } = await db
     .from('messages')

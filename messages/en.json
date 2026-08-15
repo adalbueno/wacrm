@@ -224,6 +224,7 @@
       "unsupported": "[Unsupported message type]",
       "aiBadge": "AI",
       "aiBadgeTitle": "Sent automatically by the AI assistant",
+      "sendFailedTooltip": "Message failed to send",
       "download": "Download",
       "downloadFailed": "Couldn't download the attachment",
       "viewImage": "View image",
