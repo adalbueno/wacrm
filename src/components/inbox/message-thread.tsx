@@ -168,7 +168,7 @@ export function MessageThread({
   const tTimer = useTranslations("Inbox.sessionTimer");
   const tQuote = useTranslations("Inbox.replyQuote");
 
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1188,6 +1188,9 @@ export function MessageThread({
         open={templateModalOpen}
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
+        contact={contact}
+        agentName={profile?.full_name || undefined}
+        agentEmail={profile?.email || user?.email || undefined}
       />
 
       {/* Full-size viewer for the thread's images/videos. Renders nothing

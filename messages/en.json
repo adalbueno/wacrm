@@ -276,6 +276,12 @@
       "bodyValuePlaceholder": "Value for {val}",
       "urlSuffixValuePlaceholder": "URL suffix value",
       "finalUrl": "Final URL: {url}",
+      "suggestionContactName": "Contact name",
+      "suggestionContactPhone": "Contact phone",
+      "suggestionContactEmail": "Contact email",
+      "suggestionContactCompany": "Contact company",
+      "suggestionAgentName": "Your name",
+      "suggestionAgentEmail": "Your email",
       "back": "Back",
       "cancel": "Cancel",
       "send": "Send template"
