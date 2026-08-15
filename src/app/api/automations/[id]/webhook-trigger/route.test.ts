@@ -281,6 +281,9 @@ describe('DELETE /api/automations/[id]/webhook-trigger', () => {
     const res = await del();
     expect(res.status).toBe(200);
     expect(h.state.triggerDeleteCalls).toEqual(['wh1']);
-    expect(h.state.automationUpdateCalls).toContainEqual({ is_active: false });
+    expect(h.state.automationUpdateCalls).toContainEqual({
+      is_active: false,
+      trigger_config: {},
+    });
   });
 });

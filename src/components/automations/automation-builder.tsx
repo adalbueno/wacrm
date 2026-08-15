@@ -969,7 +969,9 @@ function TriggerCard({
                 </p>
               </div>
             )}
-            {type === "inbound_webhook" && <InboundWebhookTriggerPanel t={t} />}
+            {type === "inbound_webhook" && (
+              <InboundWebhookTriggerPanel onConfigChange={onConfigChange} t={t} />
+            )}
           </div>
         )}
       </div>
@@ -985,7 +987,13 @@ function TriggerCard({
 // templated text field a step exposes).
 // ------------------------------------------------------------
 
-function InboundWebhookTriggerPanel({ t }: { t: ReturnType<typeof useTranslations> }) {
+function InboundWebhookTriggerPanel({
+  onConfigChange,
+  t,
+}: {
+  onConfigChange: (c: Record<string, unknown>) => void
+  t: ReturnType<typeof useTranslations>
+}) {
   const { automationId, webhookTrigger, webhookTriggerLoaded, refreshWebhookTrigger } =
     useResources()
   const [creating, setCreating] = useState(false)
@@ -1016,6 +1024,14 @@ function InboundWebhookTriggerPanel({ t }: { t: ReturnType<typeof useTranslation
         return
       }
       setJustCreatedUrl(payload.url as string)
+      // The POST above already wrote trigger_config on the automations
+      // row server-side — but this form's own state.trigger_config
+      // (seeded at load) doesn't know that. Without this, Save would
+      // PATCH the automation back with the stale (empty) config and
+      // stomp what the server just set, failing activation validation
+      // with "not linked to an inbound webhook trigger" even though a
+      // trigger genuinely exists.
+      onConfigChange({ webhook_trigger_id: payload.id })
       refreshWebhookTrigger()
     } catch {
       toast.error(t("webhookTrigger.createError"))
@@ -1037,6 +1053,10 @@ function InboundWebhookTriggerPanel({ t }: { t: ReturnType<typeof useTranslation
         return
       }
       setJustCreatedUrl(null)
+      // Mirrors the note in handleGenerate: keep local state in sync so
+      // a Save right after Revoke doesn't resurrect a dangling
+      // webhook_trigger_id that no longer points at a real row.
+      onConfigChange({})
       refreshWebhookTrigger()
     } catch {
       toast.error(t("webhookTrigger.revokeError"))

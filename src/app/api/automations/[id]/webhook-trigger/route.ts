@@ -224,9 +224,14 @@ export async function DELETE(
     // against a real inbound_webhook_triggers.id), so the automation
     // is inert. Deactivating it makes that visible in the automations
     // list instead of it silently sitting "active" and doing nothing.
+    // Clearing trigger_config too (not just deactivating) so a later
+    // PATCH that flips is_active back on without regenerating a
+    // trigger fails validateTriggerForActivation's webhook_trigger_id
+    // check loudly, instead of "reactivating" an automation whose
+    // trigger row no longer exists.
     await db
       .from('automations')
-      .update({ is_active: false })
+      .update({ is_active: false, trigger_config: {} })
       .eq('id', id)
       .eq('account_id', ctx.accountId)
       .eq('trigger_type', 'inbound_webhook');
