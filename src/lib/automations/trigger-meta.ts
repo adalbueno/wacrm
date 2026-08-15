@@ -39,6 +39,14 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     label: 'Button / List Reply',
     pillClass: 'border-pink-500/30 bg-pink-500/10 text-pink-300',
   },
+  // Not yet in TRIGGER_OPTIONS (automation-builder.tsx) — the
+  // trigger-creation UI (generate + show the URL once) lands in a
+  // later PR. This entry only exists so triggerMeta() can render the
+  // badge correctly once that UI ships.
+  inbound_webhook: {
+    label: 'Inbound Webhook',
+    pillClass: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
+  },
 }
 
 export function triggerMeta(t: AutomationTriggerType | string): TriggerMeta {

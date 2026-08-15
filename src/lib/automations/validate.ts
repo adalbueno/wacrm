@@ -146,6 +146,11 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
     case 'close_conversation':
       // No config required.
       break
+    case 'find_or_create_contact':
+      if (!nonEmpty(c.phone)) {
+        issues.push({ path: `${path}.phone`, message: 'phone is required' })
+      }
+      break
     default:
       issues.push({ path, message: `unknown step type: ${step.step_type}` })
   }
@@ -201,6 +206,16 @@ export function validateTriggerForActivation(
       issues.push({
         path: 'trigger.reply_ids',
         message: 'reply ids cannot be empty strings',
+      })
+    }
+  } else if (triggerType === 'inbound_webhook') {
+    // Set automatically when the inbound_webhook_triggers row is
+    // created, never hand-edited — a missing id here means the
+    // automation was never actually wired to a trigger URL.
+    if (!nonEmpty(cfg.webhook_trigger_id)) {
+      issues.push({
+        path: 'trigger.webhook_trigger_id',
+        message: 'this automation is not linked to an inbound webhook trigger',
       })
     }
   }

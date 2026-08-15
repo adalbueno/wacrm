@@ -6,6 +6,7 @@ import type {
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
   InteractiveReplyTriggerConfig,
+  InboundWebhookTriggerConfig,
   TagTriggerConfig,
   SendMessageStepConfig,
   SendButtonsStepConfig,
@@ -17,6 +18,7 @@ import type {
   WaitStepConfig,
   CreateDealStepConfig,
   AssignConversationStepConfig,
+  FindOrCreateContactStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
 import { addContactTagIfAbsent } from '@/lib/contacts/tag-write'
@@ -24,6 +26,9 @@ import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from '@/lib/contacts/tag-chain'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './meta-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+import { getPath } from '@/lib/json-path'
+import { findOrCreateContact } from '@/lib/contacts/find-or-create'
+import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 
 // ------------------------------------------------------------
 // Public API
@@ -42,6 +47,15 @@ export interface AutomationContext {
   agent_id?: string
   /** Button / list-row id the customer tapped, for interactive_reply. */
   interactive_reply_id?: string
+  /** Raw JSON body from an inbound-webhook-trigger POST, for the
+   *  `inbound_webhook` trigger type. Read via `{{webhook.*}}`
+   *  interpolation and the `webhook_field` condition subject. */
+  webhook_payload?: unknown
+  /** id of the `inbound_webhook_triggers` row that dispatched this run
+   *  — only set alongside triggerType 'inbound_webhook'. Compared
+   *  against `trigger_config.webhook_trigger_id` in `triggerMatches`
+   *  so only the one matching automation fires. */
+  webhookTriggerId?: string
 }
 
 export interface DispatchInput {
@@ -556,6 +570,30 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       return `${cfg.field} updated`
     }
 
+    case 'find_or_create_contact': {
+      const cfg = step.step_config as FindOrCreateContactStepConfig
+      const phone = normalizePhone(interpolate(cfg.phone, args))
+      if (!phone) throw new Error('find_or_create_contact needs a resolvable phone')
+      const name = cfg.name ? interpolate(cfg.name, args) : ''
+      // Attributed to the automation's author, same as every other
+      // audit-column write in this engine (automation_logs, deals) —
+      // there's no per-request human to credit for an inbound-webhook
+      // event.
+      const outcome = await findOrCreateContact(
+        db,
+        args.automation.account_id,
+        args.automation.user_id,
+        phone,
+        name,
+      )
+      if (!outcome) throw new Error('find_or_create_contact could not resolve a contact')
+      // Mutate in place: `args` is shared by reference through the rest
+      // of this loop and into nested `condition` branches, so every
+      // subsequent step in this run sees the resolved contact.
+      args.contactId = outcome.contact.id
+      return `${outcome.wasCreated ? 'created' : 'found'} contact ${outcome.contact.id}`
+    }
+
     case 'create_deal': {
       const cfg = step.step_config as CreateDealStepConfig
       if (!cfg.pipeline_id || !cfg.stage_id) throw new Error('create_deal needs pipeline + stage')
@@ -730,10 +768,26 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
     return Boolean(tagId && cfg?.tag_id && cfg.tag_id === tagId)
   }
 
+  // Narrows the trigger_type fan-out to the one automation wired to the
+  // specific inbound_webhook_triggers row the request resolved — without
+  // this, every automation sharing trigger_type = 'inbound_webhook'
+  // would fire on every request to any of their URLs.
+  if (automation.trigger_type === 'inbound_webhook') {
+    const cfg = automation.trigger_config as InboundWebhookTriggerConfig
+    return Boolean(
+      cfg?.webhook_trigger_id && cfg.webhook_trigger_id === ctx?.webhookTriggerId,
+    )
+  }
+
   return true
 }
 
-async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
+// Exported for direct unit testing (see matchesWholeWord above) — the
+// shared test mock for `automation_steps` doesn't filter by
+// parent_step_id/branch, so driving a `condition` step's branch
+// recursion through the full runAutomationsForTrigger path recurses
+// forever against that mock. Calling this directly sidesteps it.
+export async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
   const db = supabaseAdmin()
   switch (cfg.subject) {
     case 'tag_presence': {
@@ -765,6 +819,11 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
       const text = (args.context.message_text ?? '').toString()
       return text.toLowerCase().includes((cfg.value ?? '').toLowerCase())
     }
+    case 'webhook_field': {
+      if (!cfg.operand) return false
+      const v = getPath(args.context.webhook_payload, cfg.operand)
+      return v != null && String(v) === String(cfg.value ?? '')
+    }
     case 'time_of_day': {
       // operand form "HH:mm-HH:mm" — true if now is within that window
       // (supports over-midnight ranges like "18:00-09:00").
@@ -790,11 +849,21 @@ function waitMs(cfg: WaitStepConfig): number {
   return Math.max(1_000, cfg.amount * unitMs)
 }
 
+/**
+ * Resolves `{{ns.path.to.value}}` placeholders. `ns` picks the data
+ * source; everything after the first dot is walked as an arbitrary-
+ * depth path via `getPath` (so `{{webhook.data.buyer.phone}}` works,
+ * not just two segments). `vars`/`message.text` behave exactly as
+ * before this was generalized — a single-segment path is just a
+ * direct property read, same as the old two-part split.
+ */
 function interpolate(s: string, args: ExecuteArgs): string {
-  return s.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
-    const [ns, prop] = String(key).split('.')
-    if (ns === 'message' && prop === 'text') return String(args.context.message_text ?? '')
-    if (ns === 'vars' && prop) return String(args.context.vars?.[prop] ?? '')
+  return s.replace(/\{\{\s*([\w.[\]]+)\s*\}\}/g, (_, key) => {
+    const [ns, ...rest] = String(key).split('.')
+    const path = rest.join('.')
+    if (ns === 'message' && path === 'text') return String(args.context.message_text ?? '')
+    if (ns === 'vars') return String(getPath(args.context.vars, path) ?? '')
+    if (ns === 'webhook') return String(getPath(args.context.webhook_payload, path) ?? '')
     return ''
   })
 }

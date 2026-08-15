@@ -104,7 +104,14 @@ vi.mock("./meta-send", () => ({
   engineSendInteractive: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
 }));
 
-import { runAutomationsForTrigger, triggerMatches } from "./engine";
+const contactMocks = vi.hoisted(() => ({
+  findOrCreateContact: vi.fn(),
+}));
+vi.mock("@/lib/contacts/find-or-create", () => ({
+  findOrCreateContact: contactMocks.findOrCreateContact,
+}));
+
+import { runAutomationsForTrigger, triggerMatches, evaluateCondition } from "./engine";
 import type { Automation, KeywordMatchTriggerConfig } from "@/types";
 
 const ACCOUNT = "acct-1";
@@ -119,6 +126,7 @@ beforeEach(() => {
   h.state.upsertCalls = [];
   h.state.logInserts = [];
   h.state.logUpdates = [];
+  contactMocks.findOrCreateContact.mockReset();
 });
 
 describe("runAutomationsForTrigger — tenant isolation", () => {
@@ -548,5 +556,230 @@ describe("triggerMatches — keyword_match", () => {
   it("ignores empty keywords and empty messages in `word` mode", () => {
     expect(on(automation({ keywords: [""], match_type: "word" }), "anything")).toBe(false);
     expect(on(automation({ keywords: ["hi"], match_type: "word" }), "")).toBe(false);
+  });
+});
+
+describe("triggerMatches — inbound_webhook", () => {
+  function automation(webhookTriggerId?: string): Automation {
+    return {
+      id: "a1",
+      account_id: ACCOUNT,
+      user_id: "u1",
+      name: "webhook automation",
+      trigger_type: "inbound_webhook",
+      trigger_config: webhookTriggerId ? { webhook_trigger_id: webhookTriggerId } : {},
+      is_active: true,
+      execution_count: 0,
+      created_at: "",
+      updated_at: "",
+    };
+  }
+
+  it("matches only the automation wired to the resolved trigger row", () => {
+    // Without this check, every automation sharing
+    // trigger_type = 'inbound_webhook' would fire on every request to
+    // any of their URLs — this is the guard against that.
+    expect(triggerMatches(automation("wh1"), { webhookTriggerId: "wh1" })).toBe(true);
+    expect(triggerMatches(automation("wh1"), { webhookTriggerId: "wh2" })).toBe(false);
+  });
+
+  it("fails closed when the config or event id is missing", () => {
+    expect(triggerMatches(automation(), { webhookTriggerId: "wh1" })).toBe(false);
+    expect(triggerMatches(automation("wh1"), {})).toBe(false);
+    expect(triggerMatches(automation("wh1"), undefined)).toBe(false);
+  });
+});
+
+describe("interpolate — {{webhook.*}}", () => {
+  it("resolves an arbitrary-depth path from the webhook payload", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.ownedCustomField = { id: "cf1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [customStep("custom:cf1", "{{ webhook.data.buyer.name }}")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: { webhook_payload: { data: { buyer: { name: "Ada Lovelace" } } } },
+    });
+
+    expect(h.state.upsertCalls).toHaveLength(1);
+    expect((h.state.upsertCalls[0].payload as { value: string }).value).toBe(
+      "Ada Lovelace",
+    );
+  });
+
+  it("resolves an unknown namespace or missing path to '' without throwing", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.ownedCustomField = { id: "cf1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [customStep("custom:cf1", "{{ webhook.does.not.exist }} / {{ nonsense.ns }}")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: { webhook_payload: { data: {} } },
+    });
+
+    expect((h.state.upsertCalls[0].payload as { value: string }).value).toBe(" / ");
+  });
+});
+
+describe("condition — webhook_field", () => {
+  // Calls evaluateCondition directly rather than driving it through
+  // runAutomationsForTrigger's condition-branch recursion: the shared
+  // automation_steps mock above doesn't filter by parent_step_id/branch,
+  // so a real condition step's nested executeStepsFrom call would see
+  // the same unfiltered step list again and recurse forever.
+  function args(payload: unknown) {
+    return {
+      automation: { id: "a1", account_id: ACCOUNT, user_id: "u1" },
+      contactId: null,
+      context: { webhook_payload: payload },
+      parentStepId: null,
+      branch: null,
+      startPosition: 0,
+      logId: null,
+      triggerEvent: "inbound_webhook",
+    } as unknown as Parameters<typeof evaluateCondition>[1];
+  }
+
+  it("matches a nested payload path", async () => {
+    const cfg = { subject: "webhook_field" as const, operand: "event.type", value: "order_created" };
+    expect(await evaluateCondition(cfg, args({ event: { type: "order_created" } }))).toBe(true);
+  });
+
+  it("does not match a different value", async () => {
+    const cfg = { subject: "webhook_field" as const, operand: "event.type", value: "order_created" };
+    expect(await evaluateCondition(cfg, args({ event: { type: "refund_issued" } }))).toBe(false);
+  });
+
+  it("does not match when the path doesn't resolve", async () => {
+    const cfg = { subject: "webhook_field" as const, operand: "event.missing", value: "order_created" };
+    expect(await evaluateCondition(cfg, args({ event: {} }))).toBe(false);
+  });
+});
+
+describe("find_or_create_contact step", () => {
+  function findOrCreateStep(position: number, phone: string, name?: string) {
+    return {
+      id: `s${position}`,
+      automation_id: "a1",
+      step_type: "find_or_create_contact",
+      position,
+      parent_step_id: null,
+      step_config: { phone, ...(name ? { name } : {}) },
+    };
+  }
+
+  function webhookAutomation() {
+    return {
+      id: "a1",
+      account_id: ACCOUNT,
+      user_id: "u1",
+      name: "wh contact",
+      trigger_type: "inbound_webhook",
+      trigger_config: { webhook_trigger_id: "wh1" },
+      is_active: true,
+    };
+  }
+
+  it("resolves a contact from the webhook payload and a later step in the same run uses it", async () => {
+    contactMocks.findOrCreateContact.mockResolvedValueOnce({
+      contact: { id: "new-c1" },
+      wasCreated: true,
+    });
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [
+      findOrCreateStep(0, "{{ webhook.contact.phone }}", "{{ webhook.contact.name }}"),
+      {
+        id: "s1",
+        automation_id: "a1",
+        step_type: "update_contact_field",
+        position: 1,
+        parent_step_id: null,
+        step_config: { field: "company", value: "Acme" },
+      },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "inbound_webhook",
+      contactId: null,
+      context: {
+        webhook_payload: { contact: { phone: "+1 (555) 123-4567", name: "Ada" } },
+        webhookTriggerId: "wh1",
+      },
+    });
+
+    // Phone is interpolated then normalized before being handed to
+    // findOrCreateContact, same as the WhatsApp webhook's own call site.
+    expect(contactMocks.findOrCreateContact).toHaveBeenCalledWith(
+      expect.anything(),
+      ACCOUNT,
+      "u1",
+      "15551234567",
+      "Ada",
+    );
+    // The second step ran against the contact the first step resolved —
+    // this is the mid-run mutation of args.contactId actually taking
+    // effect for a sibling step later in the same execution loop.
+    expect(h.state.updateCalls).toContainEqual(
+      expect.objectContaining({
+        filters: expect.arrayContaining([["eq", "id", "new-c1"]]),
+      }),
+    );
+    const withStatus = h.state.logUpdates.filter((u) => "status" in u);
+    expect(withStatus.at(-1)).toMatchObject({ status: "success" });
+  });
+
+  it("fails the step (and the run) when the phone doesn't resolve to any digits", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [findOrCreateStep(0, "{{ webhook.contact.phone }}")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "inbound_webhook",
+      contactId: null,
+      context: { webhook_payload: { contact: {} }, webhookTriggerId: "wh1" },
+    });
+
+    expect(contactMocks.findOrCreateContact).not.toHaveBeenCalled();
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "find_or_create_contact needs a resolvable phone",
+      }),
+    );
+  });
+
+  it("regression: a contact-requiring step with no contact and no find_or_create_contact step still fails cleanly", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [
+      {
+        id: "s1",
+        automation_id: "a1",
+        step_type: "send_message",
+        position: 0,
+        parent_step_id: null,
+        step_config: { text: "Hello" },
+      },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "inbound_webhook",
+      contactId: null,
+      context: { webhook_payload: {}, webhookTriggerId: "wh1" },
+    });
+
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "send_message needs a contact",
+      }),
+    );
   });
 });
