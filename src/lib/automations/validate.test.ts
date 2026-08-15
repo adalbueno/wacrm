@@ -42,6 +42,22 @@ describe("validateStepsForActivation", () => {
     ]);
   });
 
+  it("requires phone on find_or_create_contact steps (name stays optional)", () => {
+    expect(
+      validateStepsForActivation([
+        { step_type: "find_or_create_contact", step_config: {} },
+      ]),
+    ).toEqual([{ path: "steps[0].phone", message: "phone is required" }]);
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "find_or_create_contact",
+          step_config: { phone: "{{ webhook.contact.phone }}" },
+        },
+      ]),
+    ).toEqual([]);
+  });
+
   it("checks wait amount and unit boundaries", () => {
     const issues = validateStepsForActivation([
       { step_type: "wait", step_config: { amount: 0, unit: "minutes" } },
@@ -292,6 +308,18 @@ describe("validateTriggerForActivation", () => {
     expect(empties.map((i) => i.message)).toContain(
       "reply ids cannot be empty strings",
     );
+  });
+
+  it("requires webhook_trigger_id on inbound_webhook triggers", () => {
+    expect(validateTriggerForActivation("inbound_webhook", {})).toEqual([
+      {
+        path: "trigger.webhook_trigger_id",
+        message: "this automation is not linked to an inbound webhook trigger",
+      },
+    ]);
+    expect(
+      validateTriggerForActivation("inbound_webhook", { webhook_trigger_id: "wh-uuid" }),
+    ).toEqual([]);
   });
 
   it("does not flag unknown trigger types (handled elsewhere)", () => {
