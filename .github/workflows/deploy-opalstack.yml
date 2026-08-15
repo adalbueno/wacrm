@@ -49,7 +49,11 @@ jobs:
               -o StrictHostKeyChecking=accept-new \
               -o ConnectTimeout=10 \
               "$OPALSTACK_USER@$OPALSTACK_HOST" 'bash -s' <<'REMOTE'
-            set -euo pipefail
+            # No -u: Opalstack's generated `activate` (sourced below)
+            # reads its own tracking vars (e.g. APPNAME_ORIGINAL_PATH)
+            # without a default, which nounset treats as a hard error
+            # on the very first source in a fresh session.
+            set -eo pipefail
 
             APPDIR="$HOME/apps/tramparnagringa-crm-whatsapp"
             PROJECTDIR="$APPDIR/wacrm"
