@@ -93,6 +93,9 @@ Open <http://localhost:3000>. You'll be redirected to `/login` (or
 Prefer containers? See [docs/docker.md](./docs/docker.md) for the
 Dockerfile + Docker Compose setup.
 
+This fork deploys to [Opalstack](https://opalstack.com) via a GitHub
+Actions pipeline instead — see [docs/opalstack.md](./docs/opalstack.md).
+
 ## 🚀 Deploy on Hostinger (recommended)
 
 <p align="center">
