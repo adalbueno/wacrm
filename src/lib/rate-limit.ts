@@ -173,6 +173,14 @@ export const RATE_LIMITS = {
    *  capping a stampede; excess inbounds simply don't get an auto-reply
    *  (they still land in the inbox for a human). */
   aiAutoReplyAccount: { limit: 30, windowMs: 60_000 },
+  /** Inbound webhook trigger (`POST /api/webhooks/inbound/[token]`),
+   *  public and keyed per-token rather than per-IP — the token IS the
+   *  tenant identity on this route, there's no other auth to key off.
+   *  60/min is generous for a legitimate sender (Hotmart/Kiwify fire
+   *  one event per purchase, not a stream) while bounding a leaked or
+   *  guessed token from being used to hammer the automation it's
+   *  wired to. */
+  inboundWebhookTrigger: { limit: 60, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't
