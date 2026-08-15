@@ -27,6 +27,7 @@ import { engineSendText, engineSendTemplate, engineSendInteractive } from './met
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
 import { getPath } from '@/lib/json-path'
+import { evaluateNumericExpression } from './evaluate-numeric-expression'
 import { findOrCreateContact } from '@/lib/contacts/find-or-create'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 
@@ -607,6 +608,18 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .select('default_currency')
         .eq('id', args.automation.account_id)
         .maybeSingle()
+      // cfg.value is a template string going forward (e.g.
+      // "{{webhook.Commissions.charge_amount}} / 100"), but an
+      // automation saved before this field supported interpolation
+      // may still carry a raw JSON number in step_config — coerce to
+      // string first so interpolate() (which expects a string) never
+      // sees a number. Evaluated as arithmetic *after* interpolation
+      // so `{{webhook.x}} / 100` resolves the field then does the
+      // division; a bare number is just a no-op expression. Falls
+      // back to 0 for empty/unresolved/malformed input rather than
+      // storing NaN.
+      const valueTemplate = cfg.value == null ? '0' : String(cfg.value)
+      const value = evaluateNumericExpression(interpolate(valueTemplate, args)) ?? 0
       await db.from('deals').insert({
         // Tenancy + audit, same split as automation_logs above.
         account_id: args.automation.account_id,
@@ -615,7 +628,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         stage_id: cfg.stage_id,
         contact_id: args.contactId,
         title: interpolate(cfg.title, args),
-        value: cfg.value ?? 0,
+        value,
         currency: acct?.default_currency ?? 'USD',
         status: 'open',
       })

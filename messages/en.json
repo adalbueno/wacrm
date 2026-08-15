@@ -1024,7 +1024,8 @@
         "phoneLabel": "Phone",
         "nameLabel": "Name",
         "placeholderWebhookPhone": "{{ webhook.contact.phone }}",
-        "placeholderWebhookName": "{{ webhook.contact.name }}"
+        "placeholderWebhookName": "{{ webhook.contact.name }}",
+        "placeholderDealValue": "e.g. 49.90 or {{ webhook.Commissions.charge_amount }} / 100"
       },
       "webhookTrigger": {
         "saveFirst": "Save the automation first, then come back here to generate the webhook URL.",

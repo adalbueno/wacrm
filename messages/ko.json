@@ -1024,7 +1024,8 @@
         "phoneLabel": "전화번호",
         "nameLabel": "이름",
         "placeholderWebhookPhone": "{{ webhook.contact.phone }}",
-        "placeholderWebhookName": "{{ webhook.contact.name }}"
+        "placeholderWebhookName": "{{ webhook.contact.name }}",
+        "placeholderDealValue": "예: 49.90 또는 {{ webhook.Commissions.charge_amount }} / 100"
       },
       "webhookTrigger": {
         "saveFirst": "먼저 자동화를 저장한 다음 여기로 돌아와 웹훅 URL을 생성하세요.",

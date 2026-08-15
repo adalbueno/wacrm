@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
     upsertCalls: [] as { table: string; payload: unknown }[],
     logInserts: [] as Record<string, unknown>[],
     logUpdates: [] as Record<string, unknown>[],
+    dealInserts: [] as Record<string, unknown>[],
   },
 }));
 
@@ -58,6 +59,10 @@ vi.mock("./admin-client", () => {
       return { data: { steps_executed: [], status: "success" }, error: null };
     }
     if (table === "automation_steps") return { data: state.steps, error: null };
+    if (table === "deals" && type === "insert") {
+      state.dealInserts.push(ops.payload as Record<string, unknown>);
+      return { data: null, error: null };
+    }
     return { data: null, error: null };
   }
 
@@ -126,6 +131,7 @@ beforeEach(() => {
   h.state.upsertCalls = [];
   h.state.logInserts = [];
   h.state.logUpdates = [];
+  h.state.dealInserts = [];
   contactMocks.findOrCreateContact.mockReset();
 });
 
@@ -781,5 +787,76 @@ describe("find_or_create_contact step", () => {
         error_message: "send_message needs a contact",
       }),
     );
+  });
+});
+
+describe("create_deal — value interpolation + arithmetic", () => {
+  function dealStep(value: string) {
+    return {
+      id: "s1",
+      automation_id: "a1",
+      step_type: "create_deal",
+      position: 0,
+      parent_step_id: null,
+      step_config: { pipeline_id: "p1", stage_id: "st1", title: "New sale", value },
+    };
+  }
+
+  function webhookAutomation() {
+    return {
+      id: "a1",
+      account_id: ACCOUNT,
+      user_id: "u1",
+      name: "wh deal",
+      trigger_type: "inbound_webhook",
+      trigger_config: { webhook_trigger_id: "wh1" },
+      is_active: true,
+    };
+  }
+
+  it("divides a webhook field after interpolation (cents -> currency)", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep("{{ webhook.Commissions.charge_amount }} / 100")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "inbound_webhook",
+      contactId: null,
+      context: {
+        webhook_payload: { Commissions: { charge_amount: 8473 } },
+        webhookTriggerId: "wh1",
+      },
+    });
+
+    expect(h.state.dealInserts).toHaveLength(1);
+    expect(h.state.dealInserts[0].value).toBeCloseTo(84.73);
+  });
+
+  it("still accepts a plain number, unchanged from before this field supported interpolation", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep("49.90")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "inbound_webhook",
+      contactId: null,
+      context: { webhook_payload: {}, webhookTriggerId: "wh1" },
+    });
+
+    expect(h.state.dealInserts[0].value).toBeCloseTo(49.9);
+  });
+
+  it("falls back to 0 when the field didn't resolve to a valid expression", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep("{{ webhook.does.not.exist }} / 100")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "inbound_webhook",
+      contactId: null,
+      context: { webhook_payload: {}, webhookTriggerId: "wh1" },
+    });
+
+    expect(h.state.dealInserts[0].value).toBe(0);
   });
 });
