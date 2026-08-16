@@ -1034,7 +1034,9 @@
         "dealStatusUnchanged": "Não alterar",
         "dealStatusOpen": "Aberto",
         "dealStatusWon": "Ganho",
-        "dealStatusLost": "Perdido"
+        "dealStatusLost": "Perdido",
+        "dealNotesLabel": "Notas",
+        "dealNotesHint": "Num negócio recém-criado, isso vira a nota inicial. Num negócio encontrado pelo título, é adicionado às notas já existentes (não substitui) — deixando em branco, as notas de um negócio existente não são alteradas."
       },
       "webhookTrigger": {
         "saveFirst": "Salve a automação primeiro e volte aqui para gerar a URL do webhook.",

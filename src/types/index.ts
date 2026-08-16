@@ -625,6 +625,16 @@ export interface FindOrCreateDealStepConfig {
   value?: string;
   /** Optional — when set, also applied to both the found and the newly-created deal. Leave unset to only move the stage. */
   status?: DealStatus;
+  /**
+   * Supports `{{ webhook.* }}` / `{{ vars.* }}` interpolation. On a
+   * newly-created deal this becomes the initial notes. On a found
+   * deal it's APPENDED to the existing notes (blank-line separated)
+   * rather than replacing them — the same deal can be found again by
+   * multiple webhook events across its lifecycle (order approved,
+   * refunded, ...), so overwriting would silently drop history from
+   * earlier runs. Left blank, an existing deal's notes are untouched.
+   */
+  notes?: string;
 }
 
 export interface WaitStepConfig {

@@ -1034,7 +1034,9 @@
         "dealStatusUnchanged": "Don't change",
         "dealStatusOpen": "Open",
         "dealStatusWon": "Won",
-        "dealStatusLost": "Lost"
+        "dealStatusLost": "Lost",
+        "dealNotesLabel": "Notes",
+        "dealNotesHint": "On a newly-created deal this becomes the initial notes. On a deal found by title, it's added to the existing notes (not replaced) — left blank, an existing deal's notes are left untouched."
       },
       "webhookTrigger": {
         "saveFirst": "Save the automation first, then come back here to generate the webhook URL.",

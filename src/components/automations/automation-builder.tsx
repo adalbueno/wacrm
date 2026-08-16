@@ -38,12 +38,19 @@ import {
   Braces,
   RefreshCw,
   ArrowRightLeft,
+  Info,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1833,16 +1840,16 @@ function StepEditor({
             onChange={(patch) => set(patch)}
             t={t}
           />
-          <FieldBlock label={t("config.dealTitleMatchLabel")}>
+          <FieldBlock
+            label={t("config.dealTitleMatchLabel")}
+            hint={t("config.dealTitleMatchHint")}
+          >
             <TemplatedField
               value={(cfg.title as string) ?? ""}
               onChange={(v) => set({ title: v })}
               placeholder={t.raw("config.placeholderDealTitleMatch")}
               t={t}
             />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {t("config.dealTitleMatchHint")}
-            </p>
           </FieldBlock>
           <FieldBlock label={t("config.valueLabel")}>
             <TemplatedField
@@ -1863,6 +1870,14 @@ function StepEditor({
               <option value="won">{t("config.dealStatusWon")}</option>
               <option value="lost">{t("config.dealStatusLost")}</option>
             </select>
+          </FieldBlock>
+          <FieldBlock label={t("config.dealNotesLabel")} hint={t("config.dealNotesHint")}>
+            <TemplatedField
+              multiline
+              value={(cfg.notes as string) ?? ""}
+              onChange={(v) => set({ notes: v })}
+              t={t}
+            />
           </FieldBlock>
         </>
       )
@@ -2001,14 +2016,41 @@ function StepEditor({
 
 function FieldBlock({
   label,
+  hint,
   children,
 }: {
   label: string
+  /** Long explanatory text — rendered as an info-icon tooltip instead
+   *  of always-visible text, so a field with a lot to say about it
+   *  doesn't push the rest of the step's config down the card. */
+  hint?: string
   children: React.ReactNode
 }) {
   return (
     <div className="mb-2 last:mb-0">
-      <label className="mb-1 block text-xs font-medium text-muted-foreground">{label}</label>
+      <div className="mb-1 flex items-center gap-1">
+        <label className="block text-xs font-medium text-muted-foreground">{label}</label>
+        {hint && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={label}
+                    className="text-muted-foreground hover:text-foreground focus:outline-none"
+                  />
+                }
+              >
+                <Info className="h-3 w-3" />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-left">
+                {hint}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
       {children}
     </div>
   )

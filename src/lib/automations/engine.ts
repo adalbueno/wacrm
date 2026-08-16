@@ -634,7 +634,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // (never .single(), which errors on both 0 and ≥2 rows).
       let matchQuery = db
         .from('deals')
-        .select('id')
+        .select('id, notes')
         .eq('account_id', args.automation.account_id)
         .eq('pipeline_id', cfg.pipeline_id)
         .eq('title', title)
@@ -646,10 +646,20 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
 
       const currency = await resolveDealCurrency(args.automation.account_id)
       const value = resolveDealValue(cfg.value, args)
+      const notesAddition = cfg.notes ? interpolate(cfg.notes, args).trim() : ''
 
       if (existing) {
         const update: Record<string, unknown> = { stage_id: cfg.stage_id, value }
         if (cfg.status) update.status = cfg.status
+        // Appended, not replaced — the same deal can be re-found by
+        // multiple webhook events across its lifecycle (order
+        // approved, refunded, ...), so overwriting would silently
+        // drop notes a prior run left behind. A blank notes template
+        // leaves existing notes untouched entirely (no update.notes key).
+        if (notesAddition) {
+          const existingNotes = (existing.notes as string | null) ?? ''
+          update.notes = existingNotes ? `${existingNotes}\n\n${notesAddition}` : notesAddition
+        }
         await db.from('deals').update(update).eq('id', existing.id)
         return `moved deal ${existing.id} to stage ${cfg.stage_id}`
       }
@@ -666,6 +676,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           value,
           currency,
           status: cfg.status ?? 'open',
+          notes: notesAddition || null,
         })
         .select('id')
         .single()
