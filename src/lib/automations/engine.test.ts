@@ -881,7 +881,9 @@ describe("create_deal — value interpolation + arithmetic", () => {
 });
 
 describe("find_or_create_deal", () => {
-  function dealStep(overrides: Partial<{ title: string; value: string; status: string }> = {}) {
+  function dealStep(
+    overrides: Partial<{ title: string; value: string; status: string; notes: string }> = {},
+  ) {
     return {
       id: "s1",
       automation_id: "a1",
@@ -970,6 +972,56 @@ describe("find_or_create_deal", () => {
     await dispatch({ order_ref: "ORD-1", amount: 8473 });
 
     expect(h.state.dealUpdates[0].payload).not.toHaveProperty("status");
+  });
+
+  it("sets notes as the initial value when creating a new deal", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep({ notes: "Order: {{ webhook.order_ref }}" })];
+    h.state.dealCandidates = [];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealInserts[0].notes).toBe("Order: ORD-1");
+  });
+
+  it("stores null notes on create when the notes field is left blank", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep()];
+    h.state.dealCandidates = [];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealInserts[0].notes).toBeNull();
+  });
+
+  it("appends notes to a found deal's existing notes rather than replacing them", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep({ notes: "Refund issued: {{ webhook.amount }}" })];
+    h.state.dealCandidates = [{ id: "existing-deal", notes: "Order approved" }];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealUpdates[0].payload.notes).toBe("Order approved\n\nRefund issued: 8473");
+  });
+
+  it("appends notes with no leading separator when the found deal had none yet", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep({ notes: "Order approved" })];
+    h.state.dealCandidates = [{ id: "existing-deal", notes: null }];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealUpdates[0].payload.notes).toBe("Order approved");
+  });
+
+  it("leaves an existing deal's notes untouched when the notes field is left blank", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep()];
+    h.state.dealCandidates = [{ id: "existing-deal", notes: "Order approved" }];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealUpdates[0].payload).not.toHaveProperty("notes");
   });
 
   it("scopes the match query by contact when one is already resolved in this run", async () => {

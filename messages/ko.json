@@ -1034,7 +1034,9 @@
         "dealStatusUnchanged": "변경 안 함",
         "dealStatusOpen": "진행 중",
         "dealStatusWon": "성사됨",
-        "dealStatusLost": "실패함"
+        "dealStatusLost": "실패함",
+        "dealNotesLabel": "메모",
+        "dealNotesHint": "새로 생성된 딜에서는 초기 메모가 됩니다. 제목으로 찾은 기존 딜에서는 기존 메모를 대체하지 않고 추가됩니다 — 비워두면 기존 딜의 메모는 그대로 유지됩니다."
       },
       "webhookTrigger": {
         "saveFirst": "먼저 자동화를 저장한 다음 여기로 돌아와 웹훅 URL을 생성하세요.",
