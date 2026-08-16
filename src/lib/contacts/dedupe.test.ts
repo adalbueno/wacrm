@@ -68,30 +68,55 @@ describe("dedupeByPhone", () => {
 
 describe("findExistingContact", () => {
   // Minimal SupabaseClient stub: resolves the .from().select().eq().like()
-  // chain to a fixed candidate set.
-  function stubDb(rows: Array<{ id: string; phone: string }>): SupabaseClient {
+  // chain to a fixed candidate set, and records which column .like() was
+  // called against so tests can assert on it directly.
+  function stubDb(rows: Array<{ id: string; phone: string }>) {
+    const likeCalls: [string, string][] = [];
     const builder = {
       select: () => builder,
       eq: () => builder,
-      like: () => Promise.resolve({ data: rows, error: null }),
+      like: (column: string, pattern: string) => {
+        likeCalls.push([column, pattern]);
+        return Promise.resolve({ data: rows, error: null });
+      },
     };
-    return { from: () => builder } as unknown as SupabaseClient;
+    const db = { from: () => builder } as unknown as SupabaseClient;
+    return { db, likeCalls };
   }
 
   it("returns a trunk-variant match via phonesMatch", async () => {
-    const db = stubDb([{ id: "c1", phone: "37063949836" }]);
+    const { db } = stubDb([{ id: "c1", phone: "37063949836" }]);
     const hit = await findExistingContact(db, "acct", "+370 063 949 836");
     expect(hit?.id).toBe("c1");
   });
 
   it("returns null when no candidate matches", async () => {
-    const db = stubDb([{ id: "c1", phone: "15559999999" }]);
+    const { db } = stubDb([{ id: "c1", phone: "15559999999" }]);
     const hit = await findExistingContact(db, "acct", "+1 555-123-4567");
     expect(hit).toBeNull();
   });
 
   it("returns null for an empty phone without querying", async () => {
-    const db = stubDb([{ id: "c1", phone: "15551234567" }]);
+    const { db } = stubDb([{ id: "c1", phone: "15551234567" }]);
     expect(await findExistingContact(db, "acct", "   ")).toBeNull();
+  });
+
+  // Regression: the SQL pre-filter must target phone_normalized (the
+  // digits-only generated column, migration 022), never the raw phone
+  // column. A contact whose raw `phone` still carries punctuation
+  // (e.g. "+55 (11) 91234-5678", stored exactly as typed by the manual
+  // contact form) has a raw-column tail that doesn't end in 8 bare
+  // digits, so a real Postgres LIKE '%12345678' against `phone` would
+  // silently miss it even though `phone_normalized` — and the DB's own
+  // unique index — agree it's the same number. This stub can't
+  // reproduce Postgres LIKE semantics, but it can assert the fix at
+  // the one place that matters: which column the query actually names.
+  it("pre-filters against phone_normalized, not the raw phone column", async () => {
+    const { db, likeCalls } = stubDb([
+      { id: "c1", phone: "+55 (11) 91234-5678" },
+    ]);
+    await findExistingContact(db, "acct", "5511912345678");
+    expect(likeCalls).toHaveLength(1);
+    expect(likeCalls[0][0]).toBe("phone_normalized");
   });
 });
