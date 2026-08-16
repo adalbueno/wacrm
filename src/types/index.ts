@@ -498,7 +498,8 @@ export type AutomationStepType =
   | 'condition'
   | 'send_webhook'
   | 'close_conversation'
-  | 'find_or_create_contact';
+  | 'find_or_create_contact'
+  | 'find_or_create_deal';
 
 export type AutomationLogStatus = 'success' | 'partial' | 'failed';
 
@@ -605,6 +606,27 @@ export interface CreateDealStepConfig {
   value?: string;
 }
 
+export interface FindOrCreateDealStepConfig {
+  pipeline_id: string;
+  stage_id: string;
+  /**
+   * Supports `{{ webhook.* }}` / `{{ vars.* }}` interpolation, and
+   * doubles as the match key: an existing deal in the same pipeline
+   * (and same contact, if one's already been resolved earlier in the
+   * run) with this exact title is moved to `stage_id` instead of
+   * creating a duplicate. There's no external id linking a webhook
+   * event back to a specific wacrm deal, so this needs to resolve to
+   * something stable across that event's lifecycle — an order
+   * reference, not something that changes per event (a timestamp, a
+   * per-event id).
+   */
+  title: string;
+  /** Same interpolation + arithmetic as CreateDealStepConfig.value — applied whether the deal is found or newly created. */
+  value?: string;
+  /** Optional — when set, also applied to both the found and the newly-created deal. Leave unset to only move the stage. */
+  status?: DealStatus;
+}
+
 export interface WaitStepConfig {
   amount: number;
   unit: 'minutes' | 'hours' | 'days';
@@ -653,6 +675,7 @@ export type AutomationStepConfig =
   | AssignConversationStepConfig
   | UpdateContactFieldStepConfig
   | CreateDealStepConfig
+  | FindOrCreateDealStepConfig
   | WaitStepConfig
   | ConditionStepConfig
   | SendWebhookStepConfig

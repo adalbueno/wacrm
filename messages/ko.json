@@ -870,6 +870,7 @@
         "assign_conversation": "대화 담당자 지정",
         "update_contact_field": "연락처 필드 업데이트",
         "create_deal": "딜 생성",
+        "find_or_create_deal": "딜 찾기 또는 생성",
         "wait": "대기",
         "condition": "조건 (If/Else)",
         "send_webhook": "웹훅 보내기",
@@ -1025,7 +1026,15 @@
         "nameLabel": "이름",
         "placeholderWebhookPhone": "{{ webhook.contact.phone }}",
         "placeholderWebhookName": "{{ webhook.contact.name }}",
-        "placeholderDealValue": "예: 49.90 또는 {{ webhook.Commissions.charge_amount }} / 100"
+        "placeholderDealValue": "예: 49.90 또는 {{ webhook.Commissions.charge_amount }} / 100",
+        "dealTitleMatchLabel": "제목 (검색 키)",
+        "placeholderDealTitleMatch": "{{ webhook.order_ref }}",
+        "dealTitleMatchHint": "이 파이프라인에서 정확히 같은 제목의 기존 딜이 있으면 새로 만드는 대신 아래 단계로 이동합니다 — 이벤트마다 바뀌는 값이 아니라 주문 전체 과정에서 안정적인 값(주문 참조번호 등)을 사용하세요.",
+        "dealStatusLabel": "상태",
+        "dealStatusUnchanged": "변경 안 함",
+        "dealStatusOpen": "진행 중",
+        "dealStatusWon": "성사됨",
+        "dealStatusLost": "실패함"
       },
       "webhookTrigger": {
         "saveFirst": "먼저 자동화를 저장한 다음 여기로 돌아와 웹훅 URL을 생성하세요.",

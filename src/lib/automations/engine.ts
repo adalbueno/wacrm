@@ -17,6 +17,7 @@ import type {
   UpdateContactFieldStepConfig,
   WaitStepConfig,
   CreateDealStepConfig,
+  FindOrCreateDealStepConfig,
   AssignConversationStepConfig,
   FindOrCreateContactStepConfig,
 } from '@/types'
@@ -598,28 +599,8 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
     case 'create_deal': {
       const cfg = step.step_config as CreateDealStepConfig
       if (!cfg.pipeline_id || !cfg.stage_id) throw new Error('create_deal needs pipeline + stage')
-      // Match the account's configured default currency rather than
-      // the static `deals.currency` DB default — keeps automation-
-      // created deals consistent with the one-currency-per-account
-      // rule (issue #218). Fall back to USD if the row is somehow
-      // missing the value (pre-021 forks).
-      const { data: acct } = await db
-        .from('accounts')
-        .select('default_currency')
-        .eq('id', args.automation.account_id)
-        .maybeSingle()
-      // cfg.value is a template string going forward (e.g.
-      // "{{webhook.Commissions.charge_amount}} / 100"), but an
-      // automation saved before this field supported interpolation
-      // may still carry a raw JSON number in step_config — coerce to
-      // string first so interpolate() (which expects a string) never
-      // sees a number. Evaluated as arithmetic *after* interpolation
-      // so `{{webhook.x}} / 100` resolves the field then does the
-      // division; a bare number is just a no-op expression. Falls
-      // back to 0 for empty/unresolved/malformed input rather than
-      // storing NaN.
-      const valueTemplate = cfg.value == null ? '0' : String(cfg.value)
-      const value = evaluateNumericExpression(interpolate(valueTemplate, args)) ?? 0
+      const currency = await resolveDealCurrency(args.automation.account_id)
+      const value = resolveDealValue(cfg.value, args)
       await db.from('deals').insert({
         // Tenancy + audit, same split as automation_logs above.
         account_id: args.automation.account_id,
@@ -629,10 +610,66 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contact_id: args.contactId,
         title: interpolate(cfg.title, args),
         value,
-        currency: acct?.default_currency ?? 'USD',
+        currency,
         status: 'open',
       })
       return 'deal created'
+    }
+
+    case 'find_or_create_deal': {
+      const cfg = step.step_config as FindOrCreateDealStepConfig
+      if (!cfg.pipeline_id || !cfg.stage_id) {
+        throw new Error('find_or_create_deal needs pipeline + stage')
+      }
+      const title = interpolate(cfg.title, args)
+      if (!title.trim()) throw new Error('find_or_create_deal needs a resolvable title')
+
+      // The title is the match key within the pipeline — no external
+      // id ties a webhook event back to a specific wacrm deal.
+      // Scoping further by contact, when one's already resolved
+      // earlier in this run, keeps two different customers who
+      // happen to generate the same title (e.g. identical product
+      // name) from colliding on the same deal. Newest first + take
+      // one, same defensive pattern as findOrCreateConversation
+      // (never .single(), which errors on both 0 and ≥2 rows).
+      let matchQuery = db
+        .from('deals')
+        .select('id')
+        .eq('account_id', args.automation.account_id)
+        .eq('pipeline_id', cfg.pipeline_id)
+        .eq('title', title)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (args.contactId) matchQuery = matchQuery.eq('contact_id', args.contactId)
+      const { data: candidates } = await matchQuery
+      const existing = candidates && candidates.length > 0 ? candidates[0] : null
+
+      const currency = await resolveDealCurrency(args.automation.account_id)
+      const value = resolveDealValue(cfg.value, args)
+
+      if (existing) {
+        const update: Record<string, unknown> = { stage_id: cfg.stage_id, value }
+        if (cfg.status) update.status = cfg.status
+        await db.from('deals').update(update).eq('id', existing.id)
+        return `moved deal ${existing.id} to stage ${cfg.stage_id}`
+      }
+
+      const { data: created } = await db
+        .from('deals')
+        .insert({
+          account_id: args.automation.account_id,
+          user_id: args.automation.user_id,
+          pipeline_id: cfg.pipeline_id,
+          stage_id: cfg.stage_id,
+          contact_id: args.contactId,
+          title,
+          value,
+          currency,
+          status: cfg.status ?? 'open',
+        })
+        .select('id')
+        .single()
+      return `created deal ${created?.id ?? ''}`
     }
 
     case 'send_webhook': {
@@ -879,6 +916,39 @@ function interpolate(s: string, args: ExecuteArgs): string {
     if (ns === 'webhook') return String(getPath(args.context.webhook_payload, path) ?? '')
     return ''
   })
+}
+
+/**
+ * Match the account's configured default currency rather than the
+ * static `deals.currency` DB default — keeps automation-created/
+ * -updated deals consistent with the one-currency-per-account rule
+ * (issue #218). Fall back to USD if the row is somehow missing the
+ * value (pre-021 forks). Shared by create_deal and find_or_create_deal.
+ */
+async function resolveDealCurrency(accountId: string): Promise<string> {
+  const { data: acct } = await supabaseAdmin()
+    .from('accounts')
+    .select('default_currency')
+    .eq('id', accountId)
+    .maybeSingle()
+  return acct?.default_currency ?? 'USD'
+}
+
+/**
+ * cfg.value is a template string (e.g.
+ * "{{webhook.Commissions.charge_amount}} / 100"), but an automation
+ * saved before this field supported interpolation may still carry a
+ * raw JSON number in step_config — coerce to string first so
+ * interpolate() (which expects a string) never sees a number.
+ * Evaluated as arithmetic *after* interpolation so `{{webhook.x}} /
+ * 100` resolves the field then does the division; a bare number is
+ * just a no-op expression. Falls back to 0 for empty/unresolved/
+ * malformed input rather than storing NaN. Shared by create_deal and
+ * find_or_create_deal.
+ */
+function resolveDealValue(rawValue: unknown, args: ExecuteArgs): number {
+  const valueTemplate = rawValue == null ? '0' : String(rawValue)
+  return evaluateNumericExpression(interpolate(valueTemplate, args)) ?? 0
 }
 
 async function appendResults(

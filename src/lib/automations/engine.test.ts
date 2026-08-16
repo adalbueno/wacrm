@@ -14,6 +14,10 @@ const h = vi.hoisted(() => ({
     logInserts: [] as Record<string, unknown>[],
     logUpdates: [] as Record<string, unknown>[],
     dealInserts: [] as Record<string, unknown>[],
+    /** Rows the "find" half of find_or_create_deal's match query resolves to. */
+    dealCandidates: [] as Record<string, unknown>[],
+    dealUpdates: [] as { payload: Record<string, unknown>; filters: [string, string, unknown][] }[],
+    dealSelectFilters: [] as [string, string, unknown][][],
   },
 }));
 
@@ -59,9 +63,21 @@ vi.mock("./admin-client", () => {
       return { data: { steps_executed: [], status: "success" }, error: null };
     }
     if (table === "automation_steps") return { data: state.steps, error: null };
-    if (table === "deals" && type === "insert") {
-      state.dealInserts.push(ops.payload as Record<string, unknown>);
-      return { data: null, error: null };
+    if (table === "deals") {
+      if (type === "insert") {
+        state.dealInserts.push(ops.payload as Record<string, unknown>);
+        return { data: { id: "new-deal-1" }, error: null };
+      }
+      if (type === "update") {
+        state.dealUpdates.push({
+          payload: ops.payload as Record<string, unknown>,
+          filters: ops.filters,
+        });
+        return { data: null, error: null };
+      }
+      // The find_or_create_deal match query.
+      state.dealSelectFilters.push(ops.filters);
+      return { data: state.dealCandidates, error: null };
     }
     return { data: null, error: null };
   }
@@ -132,6 +148,9 @@ beforeEach(() => {
   h.state.logInserts = [];
   h.state.logUpdates = [];
   h.state.dealInserts = [];
+  h.state.dealCandidates = [];
+  h.state.dealUpdates = [];
+  h.state.dealSelectFilters = [];
   contactMocks.findOrCreateContact.mockReset();
 });
 
@@ -858,5 +877,136 @@ describe("create_deal — value interpolation + arithmetic", () => {
     });
 
     expect(h.state.dealInserts[0].value).toBe(0);
+  });
+});
+
+describe("find_or_create_deal", () => {
+  function dealStep(overrides: Partial<{ title: string; value: string; status: string }> = {}) {
+    return {
+      id: "s1",
+      automation_id: "a1",
+      step_type: "find_or_create_deal",
+      position: 0,
+      parent_step_id: null,
+      step_config: {
+        pipeline_id: "p1",
+        stage_id: "st-won",
+        title: "{{ webhook.order_ref }}",
+        value: "{{ webhook.amount }} / 100",
+        ...overrides,
+      },
+    };
+  }
+
+  function webhookAutomation() {
+    return {
+      id: "a1",
+      account_id: ACCOUNT,
+      user_id: "u1",
+      name: "wh deal",
+      trigger_type: "inbound_webhook",
+      trigger_config: { webhook_trigger_id: "wh1" },
+      is_active: true,
+    };
+  }
+
+  function dispatch(payload: unknown, contactId: string | null = null) {
+    return runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "inbound_webhook",
+      contactId,
+      context: { webhook_payload: payload, webhookTriggerId: "wh1" },
+    });
+  }
+
+  it("creates a new deal when no match is found in the pipeline", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep()];
+    h.state.dealCandidates = [];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealInserts).toHaveLength(1);
+    expect(h.state.dealUpdates).toHaveLength(0);
+    expect(h.state.dealInserts[0]).toMatchObject({
+      account_id: ACCOUNT,
+      pipeline_id: "p1",
+      stage_id: "st-won",
+      title: "ORD-1",
+      status: "open",
+    });
+    expect(h.state.dealInserts[0].value).toBeCloseTo(84.73);
+  });
+
+  it("moves an existing deal to the target stage instead of creating a duplicate", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep()];
+    h.state.dealCandidates = [{ id: "existing-deal" }];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealInserts).toHaveLength(0);
+    expect(h.state.dealUpdates).toHaveLength(1);
+    expect(h.state.dealUpdates[0].payload).toMatchObject({ stage_id: "st-won" });
+    expect((h.state.dealUpdates[0].payload.value as number)).toBeCloseTo(84.73);
+    expect(h.state.dealUpdates[0].filters).toContainEqual(["eq", "id", "existing-deal"]);
+  });
+
+  it("only sets status on the update when explicitly configured", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep({ status: "won" })];
+    h.state.dealCandidates = [{ id: "existing-deal" }];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealUpdates[0].payload.status).toBe("won");
+  });
+
+  it("leaves status untouched on update when not configured", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep()];
+    h.state.dealCandidates = [{ id: "existing-deal" }];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 });
+
+    expect(h.state.dealUpdates[0].payload).not.toHaveProperty("status");
+  });
+
+  it("scopes the match query by contact when one is already resolved in this run", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep()];
+    h.state.dealCandidates = [];
+    h.state.owned = { id: "contact-1" }; // passes the tenant-ownership guard
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 }, "contact-1");
+
+    expect(h.state.dealSelectFilters[0]).toContainEqual(["eq", "contact_id", "contact-1"]);
+  });
+
+  it("does not scope by contact when none has been resolved", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep()];
+    h.state.dealCandidates = [];
+
+    await dispatch({ order_ref: "ORD-1", amount: 8473 }, null);
+
+    const contactFilter = h.state.dealSelectFilters[0].find((f) => f[1] === "contact_id");
+    expect(contactFilter).toBeUndefined();
+  });
+
+  it("fails cleanly when the title doesn't resolve to anything", async () => {
+    h.state.automations = [webhookAutomation()];
+    h.state.steps = [dealStep({ title: "{{ webhook.does.not.exist }}" })];
+
+    await dispatch({});
+
+    expect(h.state.dealInserts).toHaveLength(0);
+    expect(h.state.dealUpdates).toHaveLength(0);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "find_or_create_deal needs a resolvable title",
+      }),
+    );
   });
 });

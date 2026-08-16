@@ -37,6 +37,7 @@ import {
   UserPlus,
   Braces,
   RefreshCw,
+  ArrowRightLeft,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -122,6 +123,7 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   assign_conversation: { label: "assign_conversation", icon: UserCheck, border: "border-l-primary" },
   update_contact_field: { label: "update_contact_field", icon: PencilLine, border: "border-l-primary" },
   create_deal: { label: "create_deal", icon: Briefcase, border: "border-l-primary" },
+  find_or_create_deal: { label: "find_or_create_deal", icon: ArrowRightLeft, border: "border-l-primary" },
   wait: { label: "wait", icon: Hourglass, border: "border-l-border" },
   condition: { label: "condition", icon: GitBranch, border: "border-l-amber-500" },
   send_webhook: { label: "send_webhook", icon: Webhook, border: "border-l-primary" },
@@ -139,6 +141,7 @@ const ADDABLE_STEPS: AutomationStepType[] = [
   "assign_conversation",
   "update_contact_field",
   "create_deal",
+  "find_or_create_deal",
   "find_or_create_contact",
   "wait",
   "condition",
@@ -197,6 +200,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
     case "update_contact_field":
       return { field: "name", value: "" }
     case "create_deal":
+      return { pipeline_id: "", stage_id: "", title: "", value: "0" }
+    case "find_or_create_deal":
       return { pipeline_id: "", stage_id: "", title: "", value: "0" }
     case "wait":
       return { amount: 1, unit: "hours" }
@@ -1816,6 +1821,48 @@ function StepEditor({
               placeholder={t.raw("config.placeholderDealValue")}
               t={t}
             />
+          </FieldBlock>
+        </>
+      )
+    case "find_or_create_deal":
+      return (
+        <>
+          <DealPipelineFields
+            pipelineId={(cfg.pipeline_id as string) ?? ""}
+            stageId={(cfg.stage_id as string) ?? ""}
+            onChange={(patch) => set(patch)}
+            t={t}
+          />
+          <FieldBlock label={t("config.dealTitleMatchLabel")}>
+            <TemplatedField
+              value={(cfg.title as string) ?? ""}
+              onChange={(v) => set({ title: v })}
+              placeholder={t.raw("config.placeholderDealTitleMatch")}
+              t={t}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t("config.dealTitleMatchHint")}
+            </p>
+          </FieldBlock>
+          <FieldBlock label={t("config.valueLabel")}>
+            <TemplatedField
+              value={cfg.value != null ? String(cfg.value) : "0"}
+              onChange={(v) => set({ value: v })}
+              placeholder={t.raw("config.placeholderDealValue")}
+              t={t}
+            />
+          </FieldBlock>
+          <FieldBlock label={t("config.dealStatusLabel")}>
+            <select
+              value={(cfg.status as string) ?? ""}
+              onChange={(e) => set({ status: e.target.value || undefined })}
+              className="w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
+            >
+              <option value="">{t("config.dealStatusUnchanged")}</option>
+              <option value="open">{t("config.dealStatusOpen")}</option>
+              <option value="won">{t("config.dealStatusWon")}</option>
+              <option value="lost">{t("config.dealStatusLost")}</option>
+            </select>
           </FieldBlock>
         </>
       )

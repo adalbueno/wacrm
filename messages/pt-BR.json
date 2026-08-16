@@ -870,6 +870,7 @@
         "assign_conversation": "Atribuir conversa",
         "update_contact_field": "Atualizar campo do contato",
         "create_deal": "Criar negócio",
+        "find_or_create_deal": "Criar ou Mover Negócio",
         "wait": "Aguardar",
         "condition": "Condição (Se/Senão)",
         "send_webhook": "Enviar webhook",
@@ -1025,7 +1026,15 @@
         "nameLabel": "Nome",
         "placeholderWebhookPhone": "{{ webhook.contact.phone }}",
         "placeholderWebhookName": "{{ webhook.contact.name }}",
-        "placeholderDealValue": "ex: 49.90 ou {{ webhook.Commissions.charge_amount }} / 100"
+        "placeholderDealValue": "ex: 49.90 ou {{ webhook.Commissions.charge_amount }} / 100",
+        "dealTitleMatchLabel": "Título (chave de busca)",
+        "placeholderDealTitleMatch": "{{ webhook.order_ref }}",
+        "dealTitleMatchHint": "Um negócio já existente nesse pipeline com esse título exato é movido pro estágio abaixo em vez de criar um duplicado — use algo estável durante todo o ciclo do pedido (uma referência do pedido), não algo que muda a cada evento.",
+        "dealStatusLabel": "Status",
+        "dealStatusUnchanged": "Não alterar",
+        "dealStatusOpen": "Aberto",
+        "dealStatusWon": "Ganho",
+        "dealStatusLost": "Perdido"
       },
       "webhookTrigger": {
         "saveFirst": "Salve a automação primeiro e volte aqui para gerar a URL do webhook.",
