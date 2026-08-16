@@ -136,6 +136,27 @@ describe("validateStepsForActivation", () => {
     ]);
   });
 
+  it("flags find_or_create_deal when required fields are missing (title doubles as the match key)", () => {
+    const issues = validateStepsForActivation([
+      { step_type: "find_or_create_deal", step_config: {} },
+    ]);
+    expect(issues.map((i) => i.path).sort()).toEqual([
+      "steps[0].pipeline_id",
+      "steps[0].stage_id",
+      "steps[0].title",
+    ]);
+  });
+
+  it("passes find_or_create_deal with pipeline, stage, and title set", () => {
+    const issues = validateStepsForActivation([
+      {
+        step_type: "find_or_create_deal",
+        step_config: { pipeline_id: "p1", stage_id: "st1", title: "{{ webhook.order_ref }}" },
+      },
+    ]);
+    expect(issues).toEqual([]);
+  });
+
   it("validates send_buttons / send_list interactive payloads", () => {
     const good = validateStepsForActivation([
       {
