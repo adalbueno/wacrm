@@ -31,6 +31,21 @@ export interface ExistingContact {
  * or null. Pre-filters in SQL by the last-8-digit suffix (so we don't
  * pull every contact), then applies the strict `phonesMatch` in JS on
  * the small candidate set — the exact approach the webhook has used.
+ *
+ * The suffix pre-filter matches against `phone_normalized` (the
+ * digits-only generated column, migration 022), never the raw `phone`
+ * column. A contact saved with punctuation in `phone` — e.g. the
+ * manual contact form stores exactly what was typed, "+55 (11) 91234-
+ * 5678" — has a raw tail that doesn't end in 8 bare digits, so
+ * `LIKE 'phone' '%12345678'` silently misses it even though it's a
+ * genuine duplicate (its `phone_normalized` is fine, and the DB's own
+ * unique index already keys off that same column). `phone_normalized`
+ * is always digits-only for every row regardless of how `phone` was
+ * originally formatted, so filtering on it is correct for old and new
+ * rows alike with no backfill needed. Root-caused from a live report:
+ * an inbound-webhook-triggered `find_or_create_contact` step kept
+ * creating a new contact instead of finding the one from a prior test
+ * event with the identical phone.
  */
 export async function findExistingContact(
   db: SupabaseClient,
@@ -46,7 +61,7 @@ export async function findExistingContact(
     .from("contacts")
     .select("*")
     .eq("account_id", accountId)
-    .like("phone", `%${suffix}`);
+    .like("phone_normalized", `%${suffix}`);
 
   if (error || !data) return null;
 
